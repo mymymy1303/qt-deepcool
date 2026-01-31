@@ -448,17 +448,16 @@ QByteArray DeepCoolDevice::buildPacket(quint8 command, const QByteArray &payload
     // Byte 2: Command
     packet[2] = command;
 
-    // Bytes 3-39: Payload data (37 bytes available)
-    if (!payload.isEmpty() && payload.size() <= 37) {
+    // Bytes 3-40: Payload data (38 bytes available)
+    if (!payload.isEmpty() && payload.size() <= 38) {
         for (int i = 0; i < payload.size(); ++i) {
             packet[3 + i] = payload[i];
         }
     }
 
-    // Bytes 40-44: Footer "HIDDC" (0x48 0x49 0x44 0x44 0x43)
-    packet[40] = 0x48;  // 'H'
-    packet[41] = 0x49;  // 'I'
-    packet[42] = 0x44;  // 'D'
+    // Bytes 41-44: Footer "HIDC" (0x48 0x49 0x44 0x43)
+    packet[41] = 0x48;  // 'H'
+    packet[42] = 0x49;  // 'I'
     packet[43] = 0x44;  // 'D'
     packet[44] = 0x43;  // 'C'
 
@@ -497,7 +496,7 @@ bool DeepCoolDevice::sendStatusRequest()
     // Send status request command (0x10) - acts as handshake
     // Captured: aa2e10000000...484944430002
     QByteArray payload;
-    payload.resize(37);
+    payload.resize(38);
     payload.fill(0);
 
     QByteArray packet = buildPacket(CMD_STATUS_REQUEST, payload);
@@ -546,7 +545,7 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     // Windows software sends status request (0x10) before each display update
     // Send status request first
     QByteArray statusPayload;
-    statusPayload.resize(37);
+    statusPayload.resize(38);
     statusPayload.fill(0);
     QByteArray statusPacket = buildPacket(CMD_STATUS_REQUEST, statusPayload);
 
@@ -573,9 +572,9 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     // Byte 45-46: checksum - added by buildPacket
     // Byte 47:   02 - added by buildPacket
 
-    // Payload is bytes 3-39 (37 bytes), so offsets are payload[0] = byte 3
+    // Payload is bytes 3-40 (38 bytes), so offsets are payload[0] = byte 3
     QByteArray payload;
-    payload.resize(37);
+    payload.resize(38);
     payload.fill(0);
 
     // CPU Temperature at byte 6 -> payload[3]
