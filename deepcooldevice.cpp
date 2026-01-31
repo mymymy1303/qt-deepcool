@@ -553,16 +553,10 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     // 3. Send display data (0x01) on endpoint 0x02
     // 4. Read response on endpoint 0x82
 
-    // Step 1: Send EXACT Windows status packet (hardcoded from capture)
-    // Windows: aa2e10 + 38 zeros + 48494443 + 0002 + 00(reserved) = 48 bytes
+    // Step 1: Send EXACT Windows status packet (48 bytes = 96 hex chars)
+    // Structure: aa2e10 (3) + 38 zeros (38) + 48494443 (4) + 0002 (2) + 00 (1) = 48 bytes
     QByteArray statusPacket = QByteArray::fromHex(
-        "aa2e10000000000000000000000000000000000000000000"
-        "000000000000000000000000000000000000000000000000"
-        "484944430002");
-    // Add the reserved byte (byte 47) which wasn't shown in capture
-    if (statusPacket.size() == 47) {
-        statusPacket.append(static_cast<char>(0x00));
-    }
+        "aa2e10000000000000000000000000000000000000000000000000000000000000000000000000000048494443000200");
 
     qDebug() << "Status packet size:" << statusPacket.size() << "hex:" << statusPacket.toHex();
 
@@ -577,26 +571,20 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         qDebug() << "Status response:" << statusResp.toHex();
     }
 
-    // Step 3: Build and send display packet using fromHex for exact byte positioning
+    // Step 3: Build and send display packet
     quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 255.0f));
     quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 255.0f));
     quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
     if (cpuUsage < 1) cpuUsage = 1;
 
-    // Start with Windows template: aa2e01 + 38 zeros + 48494443 + checksum(2) + reserved(1)
+    // Start with template: aa2e01 (3) + 38 zeros (38) + 48494443 (4) + 0000 (2) + 00 (1) = 48 bytes
     QByteArray displayPacket = QByteArray::fromHex(
-        "aa2e01000000000000000000000000000000000000000000"
-        "000000000000000000000000000000000000000000000000"
-        "484944430000");
-    // Add reserved byte
-    if (displayPacket.size() == 47) {
-        displayPacket.append(static_cast<char>(0x00));
-    }
+        "aa2e01000000000000000000000000000000000000000000000000000000000000000000000000000048494443000000");
 
-    // Set data values at correct positions
-    displayPacket[6] = static_cast<char>(cpuTemp);   // CPU temperature
-    displayPacket[9] = static_cast<char>(gpuTemp);   // GPU temperature
-    displayPacket[24] = static_cast<char>(cpuUsage); // CPU usage percentage
+    // Set data values at correct positions (after 3-byte header)
+    displayPacket[6] = static_cast<char>(cpuTemp);   // CPU temperature at byte 6
+    displayPacket[9] = static_cast<char>(gpuTemp);   // GPU temperature at byte 9
+    displayPacket[24] = static_cast<char>(cpuUsage); // CPU usage at byte 24
 
     // Recalculate checksum (sum of bytes 0-44)
     quint16 checksum = 0;
