@@ -1,0 +1,6 @@
+build
+build/*
+build/Desktop_LLDB_Qt_6_9_1-Debug/*
+
+devicedetector.cpp
+devicedetector.h

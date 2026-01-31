@@ -1,0 +1,92 @@
+#ifndef DEEPCOOLDEVICE_H
+#define DEEPCOOLDEVICE_H
+
+#include <QString>
+#include <QByteArray>
+#include <libusb-1.0/libusb.h>
+#include <linux/hidraw.h>
+#include <sys/ioctl.h>
+#include "device.h"
+
+enum DisplayMode {
+    MODE_CPU_INFO = 0,
+    MODE_GPU_INFO = 1,
+    MODE_SYSTEM_OVERVIEW = 2,
+    MODE_CUSTOM = 3
+};
+
+struct SystemData {
+    float cpuTemp;
+    float cpuUsage;
+    float gpuTemp;
+    float gpuUsage;
+    float ramUsage;
+    bool useFahrenheit;
+};
+
+class DeepCoolDevice : public Device
+{
+public:
+    DeepCoolDevice();
+    ~DeepCoolDevice() override;
+
+    // Implement Device interface
+    bool open(const DeviceInfo &deviceInfo) override;
+    void close() override;
+    bool isOpen() const override {
+        return (deviceType == DEVICE_TYPE_HID && fd >= 0) ||
+               (deviceType == DEVICE_TYPE_USB_VENDOR && deviceHandle != nullptr);
+    }
+
+    bool sendData(const QByteArray &data) override;
+    QByteArray receiveData(int length) override;
+    QString getDeviceName() const override { return deviceName; }
+    QString getDeviceInfo() const override;
+
+    // Legacy method for backward compatibility
+    bool openDevice(const DeviceInfo &deviceInfo);
+    void closeDevice();
+
+    // Device verification
+    bool verifyDevice();
+
+    // High-level DeepCool-specific commands
+    bool sendStatusRequest();  // Handshake/init
+    bool setDisplayMode(DisplayMode mode);
+    bool updateDisplay(const SystemData &data);
+    bool setAlarm(bool enabled);
+    bool setUpdateInterval(int milliseconds);
+
+private:
+    DeviceType deviceType;
+    bool openedViaLegacyMethod;  // Track if opened via old openDevice() method
+
+    // For USB vendor-specific devices
+    libusb_context *usbContext;
+    libusb_device_handle *deviceHandle;
+    int interfaceNumber;
+    int endpointOut;
+    int endpointIn;
+
+    // For HID devices
+    int fd;  // File descriptor for HID device
+
+    // Common
+    QString devicePath;
+    QString deviceName;
+    DisplayMode currentMode;
+
+    // Protocol helpers
+    QByteArray buildPacket(quint8 command, const QByteArray &payload);
+    bool validateResponse(const QByteArray &response);
+
+    // Command bytes (reverse-engineered from USB capture)
+    static const quint8 CMD_UPDATE_DISPLAY = 0x01;  // Send display data
+    static const quint8 CMD_SET_MODE = 0x02;        // Set display mode (unconfirmed)
+    static const quint8 CMD_SET_ALARM = 0x03;       // Set alarm (unconfirmed)
+    static const quint8 CMD_STATUS_REQUEST = 0x10;  // Status/handshake request
+
+    static const int PACKET_SIZE = 48;  // MYSTIQUE uses 48-byte packets
+};
+
+#endif // DEEPCOOLDEVICE_H

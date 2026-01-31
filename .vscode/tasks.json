@@ -1,0 +1,99 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "make project directory",
+      "type": "shell",
+      "command": "mkdir",
+      "args": [
+        "-p",
+        "${workspaceFolder}/build/Desktop_LLDB_Qt_6_9_1-Debug/"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "generate build files",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "${workspaceFolder}",
+        "-B",
+        "${workspaceFolder}/build/Desktop_LLDB_Qt_6_9_1-Debug/"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "dependsOn": "make project directory",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "build generated files",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "${workspaceFolder}/build/Desktop_LLDB_Qt_6_9_1-Debug/"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "dependsOn": "generate build files",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "launch app",
+      "type": "shell",
+      "command": "${workspaceFolder}/build/Desktop_LLDB_Qt_6_9_1-Debug/",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    },
+    {
+      "type": "process",
+      "command": "/usr/bin/env",
+      "args": [
+        "CC=clang",
+        "CFLAGS=-g -Wall",
+        "make",
+        "${fileBasenameNoExtension}"
+      ],
+      "options": {
+        "cwd": "${fileDirname}"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "label": "makelldb: selected file"
+    }
+  ],
+  "compounds": [
+      {
+        "name": "build and launch",
+        "configurations": [
+          "build generated files",
+          "launch app"
+        ]
+      }
+    ]
+}

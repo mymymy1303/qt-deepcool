@@ -1,0 +1,76 @@
+# DeepCool Digital Devices - udev rules
+# Install to: /etc/udev/rules.d/99-deepcool.rules
+# Then reload: sudo udevadm control --reload-rules && sudo udevadm trigger
+
+# DeepCool vendor ID: 0x3633
+# Allow non-root access to HID devices
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", MODE="0666", GROUP="plugdev"
+
+# Allow non-root access to USB devices
+SUBSYSTEM=="usb", ATTR{idVendor}=="3633", MODE="0666", GROUP="plugdev"
+
+# Specific product rules (optional, for more fine-grained control)
+# AK400 DIGITAL (PID: 0x0001)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="0001", MODE="0666", GROUP="plugdev"
+
+# AK620 DIGITAL (PID: 0x0002)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="0002", MODE="0666", GROUP="plugdev"
+
+# AK500 DIGITAL (PID: 0x0003)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="0003", MODE="0666", GROUP="plugdev"
+
+# AK500S DIGITAL (PID: 0x0004)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="0004", MODE="0666", GROUP="plugdev"
+
+# CH560 DIGITAL (PID: 0x0005)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="0005", MODE="0666", GROUP="plugdev"
+
+# LS520/LS720 SE DIGITAL (PID: 0x0006)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="0006", MODE="0666", GROUP="plugdev"
+
+# MORPHEUS (PID: 0x0007)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="0007", MODE="0666", GROUP="plugdev"
+
+# AG400/AG620 DIGITAL (PID: 0x0008)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="0008", MODE="0666", GROUP="plugdev"
+
+# MYSTIQUE 240/360 (PID: 0x0009)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="0009", MODE="0666", GROUP="plugdev"
+SUBSYSTEM=="usb", ATTR{idVendor}=="3633", ATTR{idProduct}=="0009", MODE="0666", GROUP="plugdev"
+
+# LD240/LD360 (PID: 0x000A)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="000a", MODE="0666", GROUP="plugdev"
+
+# LP240/LP360 (PID: 0x000C)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="000c", MODE="0666", GROUP="plugdev"
+
+# LQ240/LQ360 (PID: 0x000D)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="000d", MODE="0666", GROUP="plugdev"
+
+# ASSASSIN IV VC VISION (PID: 0x000F)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="000f", MODE="0666", GROUP="plugdev"
+
+# AK400 DIGITAL PRO (PID: 0x0010)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="0010", MODE="0666", GROUP="plugdev"
+
+# AK500 DIGITAL PRO (PID: 0x0011)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="0011", MODE="0666", GROUP="plugdev"
+
+# AK620 DIGITAL PRO (PID: 0x0012)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="0012", MODE="0666", GROUP="plugdev"
+
+# CH170 DIGITAL (PID: 0x0013)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="0013", MODE="0666", GROUP="plugdev"
+
+# CH360 DIGITAL (PID: 0x0015)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="0015", MODE="0666", GROUP="plugdev"
+
+# CH270 DIGITAL (PID: 0x0016)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="0016", MODE="0666", GROUP="plugdev"
+
+# CH690 DIGITAL (PID: 0x001B)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="001b", MODE="0666", GROUP="plugdev"
+
+# CH510 MESH DIGITAL (different vendor ID: 0x34D3, PID: 0x1100)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="34d3", ATTRS{idProduct}=="1100", MODE="0666", GROUP="plugdev"
+SUBSYSTEM=="usb", ATTR{idVendor}=="34d3", ATTR{idProduct}=="1100", MODE="0666", GROUP="plugdev"

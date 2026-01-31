@@ -1,0 +1,32 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "C/C++ Debug (gdb Launch)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/Desktop_LLDB_Qt_6_9_1-Debug/bin/deepcool-qt",
+      "args": [],
+      "stopAtEntry": true,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "MIMode": "lldb",
+      "preLaunchTask": "build generated files",
+      "setupCommands": [
+          {
+              "description": "Enable pretty-printing for gdb",
+              "text": "-enable-pretty-printing",
+              "ignoreFailures": true
+          }
+      ]
+  }
+  ],
+  "inputs": [
+    {
+      "id": "zigExecutable",
+      "type": "promptString",
+      "description": "Executable name",
+      "default": ""
+    }
+  ]
+}
