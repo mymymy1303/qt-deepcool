@@ -517,11 +517,9 @@ int main(int argc, char *argv[])
     logInfo(QString("Alarm: %1").arg(enableAlarm ? "enabled" : "disabled"));
     logInfo("");
 
-    // Set display mode
-    device.setDisplayMode(displayMode);
-
-    // Set alarm
-    device.setAlarm(enableAlarm);
+    // NOTE: Disabled - Windows software doesn't send separate mode/alarm commands
+    // device.setDisplayMode(displayMode);
+    // device.setAlarm(enableAlarm);
 
     // Initial CPU usage read (need two samples)
     getCPUUsage();
