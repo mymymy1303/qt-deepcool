@@ -543,7 +543,22 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         return false;
     }
 
-    // Build payload matching captured USB protocol from Windows software
+    // Windows software sends status request (0x10) before each display update
+    // Send status request first
+    QByteArray statusPayload;
+    statusPayload.resize(37);
+    statusPayload.fill(0);
+    QByteArray statusPacket = buildPacket(CMD_STATUS_REQUEST, statusPayload);
+
+    if (!sendData(statusPacket)) {
+        qWarning() << "Failed to send status request";
+        return false;
+    }
+
+    // Try to read status response (ignore errors)
+    receiveData(48);
+
+    // Build display payload matching captured USB protocol from Windows software
     // Packet structure (48 bytes total):
     // Byte 0-1:  AA 2E (header) - added by buildPacket
     // Byte 2:    01 (command) - added by buildPacket
@@ -585,11 +600,8 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         return false;
     }
 
-    // Read ACK response
-    QByteArray response = receiveData(48);
-    if (!response.isEmpty()) {
-        qDebug() << "Display response:" << response.toHex();
-    }
+    // Read ACK response (ignore errors)
+    receiveData(48);
 
     return true;
 }
