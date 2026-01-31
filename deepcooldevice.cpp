@@ -157,10 +157,10 @@ bool DeepCoolDevice::open(const DeviceInfo &devInfo)
         return false;
     }
 
-    // Send status request (handshake) - required before display updates
-    if (!sendStatusRequest()) {
-        qWarning() << "Failed to send initial status request, continuing anyway...";
-    }
+    // MYSTIQUE uses different protocol - skip old-style status request
+    // if (!sendStatusRequest()) {
+    //     qWarning() << "Failed to send initial status request, continuing anyway...";
+    // }
 
     qDebug() << "Successfully opened device:" << deviceInfo.displayName;
     return true;
@@ -542,48 +542,89 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         return false;
     }
 
-    // Send status request (0x10) before each display update - matches Windows behavior
-    QByteArray statusPayload;
-    statusPayload.resize(38);
-    statusPayload.fill(0);
-    QByteArray statusPacket = buildPacket(CMD_STATUS_REQUEST, statusPayload);
+    // MYSTIQUE LCD protocol - based on captured Windows packet (75 bytes)
+    // This is different from other DeepCool devices - it sends LCD rendering commands
 
-    if (!sendData(statusPacket)) {
-        qWarning() << "Failed to send status request";
-        return false;
-    }
-    QByteArray statusResp = receiveData(48);
-    if (!statusResp.isEmpty()) {
-        qDebug() << "Status response:" << statusResp.toHex();
-    }
-
-    // Build display update packet
-    QByteArray payload;
-    payload.resize(38);
-    payload.fill(0);
-
-    // CPU Temperature at byte 6 -> payload[3]
     quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 255.0f));
-    payload[3] = cpuTemp;
-
-    // GPU Temperature at byte 9 -> payload[6]
     quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 255.0f));
-    payload[6] = gpuTemp;
-
-    // CPU Usage at byte 24 -> payload[21]
     quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
-    payload[21] = cpuUsage;
+    quint8 gpuUsage = static_cast<quint8>(qBound(0.0f, data.gpuUsage, 100.0f));
 
-    QByteArray packet = buildPacket(CMD_UPDATE_DISPLAY, payload);
-    qDebug() << "Sending packet:" << packet.toHex();
+    QByteArray packet;
+    packet.resize(75);
+    packet.fill(0);
+
+    // Header bytes (from capture)
+    packet[0] = 0x1b;
+    packet[1] = 0x00;
+    packet[2] = 0x10;
+    packet[3] = 0x10;
+    packet[4] = 0x95;
+    packet[5] = 0x8b;
+    packet[6] = 0x87;
+    packet[7] = 0xae;
+    packet[8] = 0xff;
+    packet[9] = 0xff;
+    // bytes 10-12 are 0x00
+    packet[13] = 0x09;
+    // bytes 14-15 are 0x00
+    packet[16] = 0x04;
+    // byte 17 is 0x00
+    packet[18] = 0x01;
+    // byte 19 is 0x00
+    packet[20] = 0x02;
+    packet[21] = cpuUsage;  // CPU usage (was 0x30 = 48% in capture)
+    // bytes 22-24 are 0x00
+
+    // Embedded aa 2e 01 sequence
+    packet[25] = 0xaa;
+    packet[26] = 0x2e;
+    packet[27] = 0x01;
+    packet[28] = gpuUsage;  // GPU usage (was 0x32 = 50% in capture)
+    // bytes 29-30 are 0x00
+    packet[31] = 0x64;  // Possibly max value (100)
+    // bytes 32-33 are 0x00
+    packet[34] = cpuTemp;   // CPU temp (was 0x21 = 33°C in capture)
+    // byte 35 is 0x00
+    packet[36] = 0x07;
+    packet[37] = 0x03;
+    // byte 38 is 0x00
+    packet[39] = gpuTemp;   // GPU temp (was 0x1f = 31°C in capture)
+    packet[40] = 0x05;
+    packet[41] = 0x0c;
+    // byte 42 is 0x00
+    packet[43] = 0x13;
+    packet[44] = 0x05;
+    // byte 45 is 0x00
+    packet[46] = 0x28;
+    packet[47] = 0x13;
+    packet[48] = 0x04;
+    // byte 49 is 0x00
+    packet[50] = 0x13;
+    packet[51] = 0x04;
+    // bytes 52-63 are 0x00
+
+    // Footer: HIDDCS + 0x03
+    packet[64] = 0x48;  // H
+    packet[65] = 0x49;  // I
+    packet[66] = 0x44;  // D
+    packet[67] = 0x44;  // D
+    packet[68] = 0x43;  // C
+    packet[69] = 0x53;  // S
+    packet[70] = 0x03;
+    // bytes 71-74 are 0x00 (padding to 75)
+
+    qDebug() << "Sending MYSTIQUE LCD packet:" << packet.toHex();
 
     if (!sendData(packet)) {
         qWarning() << "Failed to send display update";
         return false;
     }
-    QByteArray displayResp = receiveData(48);
-    if (!displayResp.isEmpty()) {
-        qDebug() << "Display response:" << displayResp.toHex();
+
+    // Read response
+    QByteArray response = receiveData(75);
+    if (!response.isEmpty()) {
+        qDebug() << "Response:" << response.toHex();
     }
 
     return true;
