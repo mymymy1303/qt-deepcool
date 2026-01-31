@@ -462,13 +462,13 @@ QByteArray DeepCoolDevice::buildPacket(quint8 command, const QByteArray &payload
     packet[43] = 0x44;  // 'D'
     packet[44] = 0x43;  // 'C'
 
-    // Bytes 45-46: Checksum (simple sum of bytes 0-44)
+    // Bytes 45-46: Checksum (simple sum of bytes 0-44, little-endian)
     quint16 checksum = 0;
     for (int i = 0; i < 45; ++i) {
         checksum += static_cast<quint8>(packet[i]);
     }
-    packet[45] = static_cast<quint8>((checksum >> 8) & 0xFF);  // High byte
-    packet[46] = static_cast<quint8>(checksum & 0xFF);         // Low byte
+    packet[45] = static_cast<quint8>(checksum & 0xFF);         // Low byte first
+    packet[46] = static_cast<quint8>((checksum >> 8) & 0xFF);  // High byte second
 
     // Byte 47: Reserved/padding
     packet[47] = 0x02;
@@ -544,36 +544,51 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     }
 
     // Build payload matching captured USB protocol from Windows software
-    // Frame 11: aa2e01 000000 21 0000 33 0000...0000 44 000000...
-    // Payload structure (37 bytes available, bytes 3-39 of packet):
-    //   Byte 0-2: padding (000000)
-    //   Byte 3: CPU temp (0x21 = 33°C)
-    //   Byte 4-5: padding (0000)
-    //   Byte 6: GPU temp (0x33 = 51°C)
-    //   Byte 7-17: padding
-    //   Byte 18: Usage value? (0x44 = 68)
+    // Packet structure (48 bytes total):
+    // Byte 0-1:  AA 2E (header) - added by buildPacket
+    // Byte 2:    01 (command) - added by buildPacket
+    // Byte 3-5:  00 00 00 (padding)
+    // Byte 6:    CPU temp
+    // Byte 7-8:  00 00 (padding)
+    // Byte 9:    GPU temp
+    // Byte 10-23: zeros
+    // Byte 24:   CPU usage %
+    // Byte 25-39: zeros
+    // Byte 40-44: HIDDC footer - added by buildPacket
+    // Byte 45-46: checksum - added by buildPacket
+    // Byte 47:   02 - added by buildPacket
 
+    // Payload is bytes 3-39 (37 bytes), so offsets are payload[0] = byte 3
     QByteArray payload;
     payload.resize(37);
     payload.fill(0);
 
-    // CPU Temperature at offset 3
+    // CPU Temperature at byte 6 -> payload[3]
     quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 255.0f));
     payload[3] = cpuTemp;
 
-    // GPU Temperature at offset 6
+    // GPU Temperature at byte 9 -> payload[6]
     quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 255.0f));
     payload[6] = gpuTemp;
 
-    // CPU Usage at offset 18 (speculation based on 0x44=68 in capture)
+    // CPU Usage at byte 24 -> payload[21]
     quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
-    payload[18] = cpuUsage;
+    payload[21] = cpuUsage;
 
     QByteArray packet = buildPacket(CMD_UPDATE_DISPLAY, payload);
+
+    // Debug: print the packet we're sending
+    qDebug() << "Sending packet:" << packet.toHex();
 
     if (!sendData(packet)) {
         qWarning() << "Failed to send display update";
         return false;
+    }
+
+    // Read ACK response
+    QByteArray response = receiveData(48);
+    if (!response.isEmpty()) {
+        qDebug() << "Display response:" << response.toHex();
     }
 
     return true;
