@@ -405,9 +405,9 @@ QByteArray DeepCoolDevice::receiveData(int length)
         return buffer;
 
     } else if (deviceInfo.type == DEVICE_TYPE_USB_VENDOR) {
-        // USB vendor device - use libusb_interrupt_transfer
+        // USB vendor device - use bulk transfer (same as send)
         int bytesRead = 0;
-        int ret = libusb_interrupt_transfer(
+        int ret = libusb_bulk_transfer(
             deviceHandle,
             endpointIn,
             (unsigned char*)buffer.data(),
