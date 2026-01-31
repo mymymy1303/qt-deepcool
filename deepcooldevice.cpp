@@ -15,8 +15,8 @@ DeepCoolDevice::DeepCoolDevice()
     , usbContext(nullptr)
     , deviceHandle(nullptr)
     , interfaceNumber(0)
-    , endpointOut(0x02)
-    , endpointIn(0x82)
+    , endpointOut(0x01)  // MYSTIQUE uses endpoint 1, not 2
+    , endpointIn(0x81)   // MYSTIQUE uses endpoint 1, not 2
     , fd(-1)
     , currentMode(MODE_CPU_INFO)
 {
@@ -157,10 +157,10 @@ bool DeepCoolDevice::open(const DeviceInfo &devInfo)
         return false;
     }
 
-    // Send status request (handshake) - required before display updates
-    if (!sendStatusRequest()) {
-        qWarning() << "Failed to send initial status request, continuing anyway...";
-    }
+    // NOTE: MYSTIQUE uses different protocol - skip status request
+    // if (!sendStatusRequest()) {
+    //     qWarning() << "Failed to send initial status request, continuing anyway...";
+    // }
 
     qDebug() << "Successfully opened device:" << deviceInfo.displayName;
     return true;
@@ -542,65 +542,65 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         return false;
     }
 
-    // Windows software sends status request (0x10) before each display update
-    // Send status request first
-    QByteArray statusPayload;
-    statusPayload.resize(38);
-    statusPayload.fill(0);
-    QByteArray statusPacket = buildPacket(CMD_STATUS_REQUEST, statusPayload);
+    // MYSTIQUE uses a completely different protocol than other DeepCool devices
+    // Based on discussion: https://github.com/Nortank12/deepcool-digital-linux/discussions/18
+    // The packet format is different - no AA 2E header, no HIDC footer
 
-    if (!sendData(statusPacket)) {
-        qWarning() << "Failed to send status request";
-        return false;
-    }
+    // Try the format from the discussion that worked on first try
+    // This appears to be for setting display content
+    QByteArray packet;
 
-    // Try to read status response (ignore errors)
-    receiveData(48);
+    // Build MYSTIQUE-specific packet
+    // Format from discussion (34 bytes):
+    // 0x1b, 0x00, 0xf0, 0x16, 0xcc, 0x21, 0x01, 0xe6, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00,
+    // 0x09, 0x00, 0x00, 0x02, 0x00, 0x02, 0x00, 0x01, 0x03, 0x40, 0x00, 0x00, 0x00,
+    // 0xff, 0xff, 0xff, 0xf5, 0xf6, 0xf7
 
-    // Build display payload matching captured USB protocol from Windows software
-    // Packet structure (48 bytes total):
-    // Byte 0-1:  AA 2E (header) - added by buildPacket
-    // Byte 2:    01 (command) - added by buildPacket
-    // Byte 3-5:  00 00 00 (padding)
-    // Byte 6:    CPU temp
-    // Byte 7-8:  00 00 (padding)
-    // Byte 9:    GPU temp
-    // Byte 10-23: zeros
-    // Byte 24:   CPU usage %
-    // Byte 25-39: zeros
-    // Byte 40-44: HIDDC footer - added by buildPacket
-    // Byte 45-46: checksum - added by buildPacket
-    // Byte 47:   02 - added by buildPacket
-
-    // Payload is bytes 3-40 (38 bytes), so offsets are payload[0] = byte 3
-    QByteArray payload;
-    payload.resize(38);
-    payload.fill(0);
-
-    // CPU Temperature at byte 6 -> payload[3]
     quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 255.0f));
-    payload[3] = cpuTemp;
-
-    // GPU Temperature at byte 9 -> payload[6]
-    quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 255.0f));
-    payload[6] = gpuTemp;
-
-    // CPU Usage at byte 24 -> payload[21]
     quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
-    payload[21] = cpuUsage;
 
-    QByteArray packet = buildPacket(CMD_UPDATE_DISPLAY, payload);
+    // Try a simpler approach - send temp/usage in a basic format
+    // This is experimental - the exact protocol needs more reverse engineering
+    packet.append(static_cast<char>(0x1b));
+    packet.append(static_cast<char>(0x00));
+    packet.append(static_cast<char>(0xf0));
+    packet.append(static_cast<char>(0x16));
+    packet.append(static_cast<char>(0xcc));
+    packet.append(static_cast<char>(cpuTemp));  // CPU temp at byte 5
+    packet.append(static_cast<char>(cpuUsage)); // CPU usage at byte 6
+    packet.append(static_cast<char>(0xe6));
+    packet.append(static_cast<char>(0xff));
+    packet.append(static_cast<char>(0xff));
+    packet.append(static_cast<char>(0x00));
+    packet.append(static_cast<char>(0x00));
+    packet.append(static_cast<char>(0x00));
+    packet.append(static_cast<char>(0x00));
+    packet.append(static_cast<char>(0x09));
+    packet.append(static_cast<char>(0x00));
+    packet.append(static_cast<char>(0x00));
+    packet.append(static_cast<char>(0x02));
+    packet.append(static_cast<char>(0x00));
+    packet.append(static_cast<char>(0x02));
+    packet.append(static_cast<char>(0x00));
+    packet.append(static_cast<char>(0x01));
+    packet.append(static_cast<char>(0x03));
+    packet.append(static_cast<char>(0x40));
+    packet.append(static_cast<char>(0x00));
+    packet.append(static_cast<char>(0x00));
+    packet.append(static_cast<char>(0x00));
+    packet.append(static_cast<char>(0xff));
+    packet.append(static_cast<char>(0xff));
+    packet.append(static_cast<char>(0xff));
+    packet.append(static_cast<char>(0xf5));
+    packet.append(static_cast<char>(0xf6));
+    packet.append(static_cast<char>(0xf7));
 
-    // Debug: print the packet we're sending
-    qDebug() << "Sending packet:" << packet.toHex();
+    qDebug() << "Sending MYSTIQUE packet:" << packet.toHex();
 
     if (!sendData(packet)) {
         qWarning() << "Failed to send display update";
         return false;
     }
-
-    // Read ACK response (ignore errors)
-    receiveData(48);
 
     return true;
 }
