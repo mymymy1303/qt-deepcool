@@ -157,11 +157,7 @@ bool DeepCoolDevice::open(const DeviceInfo &devInfo)
         return false;
     }
 
-    // Send status request (handshake) on device open
-    if (!sendStatusRequest()) {
-        qWarning() << "Failed to send initial status request, continuing anyway...";
-    }
-
+    // Skip status request on open - keep it simple
     qDebug() << "Successfully opened device:" << deviceInfo.displayName;
     return true;
 }
@@ -542,22 +538,7 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         return false;
     }
 
-    // Send status request (0x10) first - this was working and getting responses
-    QByteArray statusPayload;
-    statusPayload.resize(38);
-    statusPayload.fill(0);
-    QByteArray statusPacket = buildPacket(CMD_STATUS_REQUEST, statusPayload);
-
-    if (!sendData(statusPacket)) {
-        qWarning() << "Failed to send status request";
-        return false;
-    }
-    QByteArray statusResp = receiveData(48);
-    if (!statusResp.isEmpty()) {
-        qDebug() << "Status response:" << statusResp.toHex();
-    }
-
-    // Build display update packet using the 48-byte format
+    // Simple 48-byte packet that was working before
     quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 255.0f));
     quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 255.0f));
     quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
@@ -566,25 +547,19 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     payload.resize(38);
     payload.fill(0);
 
-    // Match captured packet layout
-    payload[3] = cpuTemp;    // Byte 6: CPU temp
-    payload[6] = gpuTemp;    // Byte 9: GPU temp
-    payload[19] = 0x04;      // Byte 22: flag (seen in some captures)
-    payload[20] = 0x00;      // Byte 23
-    payload[21] = cpuUsage;  // Byte 24: CPU usage
+    payload[3] = cpuTemp;    // CPU temp
+    payload[6] = gpuTemp;    // GPU temp
+    payload[21] = cpuUsage;  // CPU usage
 
     QByteArray packet = buildPacket(CMD_UPDATE_DISPLAY, payload);
-    qDebug() << "Sending packet:" << packet.toHex();
+    qDebug() << "Sending:" << packet.toHex();
 
     if (!sendData(packet)) {
-        qWarning() << "Failed to send display update";
         return false;
     }
-    QByteArray displayResp = receiveData(48);
-    if (!displayResp.isEmpty()) {
-        qDebug() << "Display response:" << displayResp.toHex();
-    }
 
+    // Try to read response
+    receiveData(48);
     return true;
 }
 
