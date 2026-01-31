@@ -538,18 +538,20 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         return false;
     }
 
-    // Simple 48-byte packet that was working before
+    // Simple 48-byte packet
     quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 255.0f));
     quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 255.0f));
+    // Ensure non-zero usage for testing
     quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
+    if (cpuUsage < 1) cpuUsage = 50;  // Default to 50% for visibility
 
     QByteArray payload;
     payload.resize(38);
     payload.fill(0);
 
-    payload[3] = cpuTemp;    // CPU temp
-    payload[6] = gpuTemp;    // GPU temp
-    payload[21] = cpuUsage;  // CPU usage
+    payload[3] = cpuTemp;    // CPU temp at byte 6
+    payload[6] = gpuTemp;    // GPU temp at byte 9
+    payload[21] = cpuUsage;  // CPU usage at byte 24
 
     QByteArray packet = buildPacket(CMD_UPDATE_DISPLAY, payload);
     qDebug() << "Sending:" << packet.toHex();
@@ -558,8 +560,11 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         return false;
     }
 
-    // Try to read response
-    receiveData(48);
+    // Read and print response
+    QByteArray resp = receiveData(48);
+    if (!resp.isEmpty()) {
+        qDebug() << "Response:" << resp.toHex();
+    }
     return true;
 }
 
