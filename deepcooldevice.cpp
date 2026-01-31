@@ -547,97 +547,78 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         return false;
     }
 
-    // Windows software sequence (from USB capture):
-    // 1. Send mode command (0x04) on endpoint 0x01 to enable data display
-    // 2. Send status request (0x10) on endpoint 0x02
-    // 3. Read response on endpoint 0x82
-    // 4. Send display data (0x01) on endpoint 0x02
-    // 5. Read response on endpoint 0x82
+    // MYSTIQUE 360 uses a completely different protocol than other DeepCool devices!
+    // Based on working Rust code from GitHub discussion:
+    // - Uses endpoint 0x01 (not 0x02)
+    // - Packet starts with 0x1b 0x00 (not 0xaa 0x2e)
+    // - Different packet structure entirely
 
-    // Step 0: Send mode enable command on endpoint 0x01
-    // Packet from capture: aa2e04 01 02 0001 ... 48494443 f801
-    QByteArray modePacket = QByteArray::fromHex(
-        "aa2e04010200010000000000000000000000000000000000000000000000000000000000000000000048494443f801");
+    // Build MYSTIQUE-specific packet (34 bytes based on working Rust implementation)
+    QByteArray packet;
+    packet.resize(34);
+    packet.fill(0);
 
-    qDebug() << "Mode packet size:" << modePacket.size() << "hex:" << modePacket.toHex();
+    // Header and control bytes (from working Rust implementation)
+    packet[0] = 0x1b;
+    packet[1] = 0x00;
+    packet[2] = static_cast<char>(0xf0);
+    packet[3] = 0x16;
+    packet[4] = static_cast<char>(0xcc);
+    packet[5] = 0x21;
+    packet[6] = 0x01;
+    packet[7] = static_cast<char>(0xe6);
+    packet[8] = static_cast<char>(0xff);
+    packet[9] = static_cast<char>(0xff);
+    packet[10] = 0x00;
+    packet[11] = 0x00;
+    packet[12] = 0x00;
+    packet[13] = 0x00;
+    packet[14] = 0x09;
+    packet[15] = 0x00;
+    packet[16] = 0x00;
+    packet[17] = 0x02;
+    packet[18] = 0x00;
+    packet[19] = 0x02;
+    packet[20] = 0x00;
+    packet[21] = 0x01;
+    packet[22] = 0x03;
+    packet[23] = 0x40;
+    packet[24] = 0x00;
+    packet[25] = 0x00;
+    packet[26] = 0x00;
+    // RGB color bytes (27-29) - use temperature to set color
+    quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 100.0f));
+    // Color based on temp: green (cool) -> yellow -> red (hot)
+    quint8 r = (cpuTemp > 50) ? 255 : (cpuTemp * 5);
+    quint8 g = (cpuTemp < 50) ? 255 : (255 - (cpuTemp - 50) * 5);
+    quint8 b = 0;
+    packet[27] = static_cast<char>(r);
+    packet[28] = static_cast<char>(g);
+    packet[29] = static_cast<char>(b);
+    // Additional data bytes
+    packet[30] = static_cast<char>(0xf5);
+    packet[31] = static_cast<char>(0xf6);
+    packet[32] = static_cast<char>(0xf7);
+    packet[33] = 0x00;
 
-    // Send on endpoint 0x01 instead of 0x02
+    qDebug() << "MYSTIQUE packet (EP1):" << packet.toHex();
+
+    // Send on endpoint 0x01 (MYSTIQUE-specific)
     if (deviceInfo.type == DEVICE_TYPE_USB_VENDOR && deviceHandle) {
         int bytesWritten = 0;
         int ret = libusb_bulk_transfer(
             deviceHandle,
-            0x01,  // Endpoint 1 OUT
-            (unsigned char*)modePacket.data(),
-            modePacket.size(),
+            0x01,  // Endpoint 1 OUT - MYSTIQUE uses this!
+            (unsigned char*)packet.data(),
+            packet.size(),
             &bytesWritten,
             1000
         );
         if (ret < 0) {
-            qWarning() << "Failed to send mode command on EP1:" << libusb_error_name(ret);
-        } else {
-            qDebug() << "Sent mode command on EP1:" << bytesWritten << "bytes";
-            // Try to read response on endpoint 0x81
-            QByteArray modeResp(48, 0);
-            int bytesRead = 0;
-            ret = libusb_bulk_transfer(deviceHandle, 0x81, (unsigned char*)modeResp.data(), 48, &bytesRead, 500);
-            if (ret == 0 && bytesRead > 0) {
-                modeResp.resize(bytesRead);
-                qDebug() << "Mode response:" << modeResp.toHex();
-            }
+            qWarning() << "Failed to send MYSTIQUE packet:" << libusb_error_name(ret);
+            return false;
         }
-    }
-
-    // Step 1: Send EXACT Windows status packet (48 bytes = 96 hex chars)
-    // Structure: aa2e10 (3) + 38 zeros (38) + 48494443 (4) + 0002 (2) + 00 (1) = 48 bytes
-    QByteArray statusPacket = QByteArray::fromHex(
-        "aa2e10000000000000000000000000000000000000000000000000000000000000000000000000000048494443000200");
-
-    qDebug() << "Status packet size:" << statusPacket.size() << "hex:" << statusPacket.toHex();
-
-    if (!sendData(statusPacket)) {
-        qWarning() << "Failed to send status request";
-        return false;
-    }
-
-    // Step 2: Read status response
-    QByteArray statusResp = receiveData(48);
-    if (!statusResp.isEmpty()) {
-        qDebug() << "Status response:" << statusResp.toHex();
-    }
-
-    // Step 3: Build and send display packet
-    quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 255.0f));
-    quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 255.0f));
-    quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
-    if (cpuUsage < 1) cpuUsage = 1;
-
-    // Start with template: aa2e01 (3) + 38 zeros (38) + 48494443 (4) + 0000 (2) + 00 (1) = 48 bytes
-    QByteArray displayPacket = QByteArray::fromHex(
-        "aa2e01000000000000000000000000000000000000000000000000000000000000000000000000000048494443000000");
-
-    // Set data values at correct positions (after 3-byte header)
-    displayPacket[6] = static_cast<char>(cpuTemp);   // CPU temperature at byte 6
-    displayPacket[9] = static_cast<char>(gpuTemp);   // GPU temperature at byte 9
-    displayPacket[24] = static_cast<char>(cpuUsage); // CPU usage at byte 24
-
-    // Recalculate checksum (sum of bytes 0-44)
-    quint16 checksum = 0;
-    for (int i = 0; i < 45; ++i) {
-        checksum += static_cast<quint8>(displayPacket[i]);
-    }
-    displayPacket[45] = static_cast<char>(checksum & 0xFF);
-    displayPacket[46] = static_cast<char>((checksum >> 8) & 0xFF);
-
-    qDebug() << "Display packet size:" << displayPacket.size() << "hex:" << displayPacket.toHex();
-
-    if (!sendData(displayPacket)) {
-        return false;
-    }
-
-    // Step 4: Read display response
-    QByteArray displayResp = receiveData(48);
-    if (!displayResp.isEmpty()) {
-        qDebug() << "Display response:" << displayResp.toHex();
+        qDebug() << "Sent" << bytesWritten << "bytes to MYSTIQUE on EP1";
     }
 
     return true;
