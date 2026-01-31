@@ -489,20 +489,29 @@ bool DeepCoolDevice::sendStatusRequest()
         return false;
     }
 
-    // Send status request command (0x10) - acts as handshake
-    // Captured: aa2e10000000...484944430002
-    QByteArray payload;
-    payload.resize(38);
-    payload.fill(0);
+    // Build status packet matching exact Windows format
+    QByteArray packet(48, 0);
+    packet[0] = static_cast<char>(0xAA);
+    packet[1] = 0x2E;
+    packet[2] = 0x10;  // Status request command
+    // Bytes 3-40 are zeros (payload)
+    packet[41] = 0x48;  // 'H'
+    packet[42] = 0x49;  // 'I'
+    packet[43] = 0x44;  // 'D'
+    packet[44] = 0x43;  // 'C'
+    // Checksum: 0xAA + 0x2E + 0x10 + 0x48 + 0x49 + 0x44 + 0x43 = 0x200
+    packet[45] = 0x00;  // Low byte
+    packet[46] = 0x02;  // High byte
+    packet[47] = 0x00;  // Reserved
 
-    QByteArray packet = buildPacket(CMD_STATUS_REQUEST, payload);
+    qDebug() << "Sending status packet:" << packet.toHex();
 
     if (!sendData(packet)) {
         qWarning() << "Failed to send status request";
         return false;
     }
 
-    // Read response (optional - device sends back 552e10...)
+    // Read response
     QByteArray response = receiveData(48);
     if (!response.isEmpty()) {
         qDebug() << "Status response:" << response.toHex();
@@ -538,43 +547,83 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         return false;
     }
 
-    // Send status request (0x10) first - might be needed to switch to data mode
-    QByteArray statusPayload;
-    statusPayload.resize(38);
-    statusPayload.fill(0);
-    QByteArray statusPacket = buildPacket(CMD_STATUS_REQUEST, statusPayload);
+    // Windows software sequence (from USB capture):
+    // 1. Send status request (0x10) on endpoint 0x02
+    // 2. Read response on endpoint 0x82
+    // 3. Send display data (0x01) on endpoint 0x02
+    // 4. Read response on endpoint 0x82
 
-    sendData(statusPacket);
-    QByteArray statusResp = receiveData(48);
-    if (!statusResp.isEmpty()) {
-        qDebug() << "Status:" << statusResp.toHex();
-    }
+    // Step 1: Send status request (exact Windows packet)
+    QByteArray statusPacket(48, 0);
+    statusPacket[0] = static_cast<char>(0xAA);
+    statusPacket[1] = 0x2E;
+    statusPacket[2] = 0x10;  // Status command
+    // Bytes 3-40 are zeros (payload)
+    statusPacket[41] = 0x48;  // 'H'
+    statusPacket[42] = 0x49;  // 'I'
+    statusPacket[43] = 0x44;  // 'D'
+    statusPacket[44] = 0x43;  // 'C'
+    // Checksum: 0xAA + 0x2E + 0x10 + 0x48 + 0x49 + 0x44 + 0x43 = 0x200
+    statusPacket[45] = 0x00;  // Low byte
+    statusPacket[46] = 0x02;  // High byte
+    statusPacket[47] = 0x00;  // Reserved (Windows uses 0x00)
 
-    // Now send display data
-    quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 255.0f));
-    quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 255.0f));
-    quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
-    if (cpuUsage < 1) cpuUsage = 50;
+    qDebug() << "Status packet:" << statusPacket.toHex();
 
-    QByteArray payload;
-    payload.resize(38);
-    payload.fill(0);
-
-    payload[3] = cpuTemp;    // CPU temp at byte 6
-    payload[6] = gpuTemp;    // GPU temp at byte 9
-    payload[21] = cpuUsage;  // CPU usage at byte 24
-
-    QByteArray packet = buildPacket(CMD_UPDATE_DISPLAY, payload);
-    qDebug() << "Display:" << packet.toHex();
-
-    if (!sendData(packet)) {
+    if (!sendData(statusPacket)) {
+        qWarning() << "Failed to send status request";
         return false;
     }
 
-    QByteArray resp = receiveData(48);
-    if (!resp.isEmpty()) {
-        qDebug() << "Response:" << resp.toHex();
+    // Step 2: Read status response
+    QByteArray statusResp = receiveData(48);
+    if (!statusResp.isEmpty()) {
+        qDebug() << "Status response:" << statusResp.toHex();
     }
+
+    // Step 3: Build and send display packet
+    quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 255.0f));
+    quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 255.0f));
+    quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
+    if (cpuUsage < 1) cpuUsage = 1;
+
+    QByteArray displayPacket(48, 0);
+    displayPacket[0] = static_cast<char>(0xAA);
+    displayPacket[1] = 0x2E;
+    displayPacket[2] = 0x01;  // Display command
+    // Bytes 3-5 are zeros
+    displayPacket[6] = static_cast<char>(cpuTemp);   // CPU temperature
+    // Bytes 7-8 are zeros
+    displayPacket[9] = static_cast<char>(gpuTemp);   // GPU temperature
+    // Bytes 10-23 are zeros
+    displayPacket[24] = static_cast<char>(cpuUsage); // CPU usage percentage
+    // Bytes 25-40 are zeros
+    displayPacket[41] = 0x48;  // 'H'
+    displayPacket[42] = 0x49;  // 'I'
+    displayPacket[43] = 0x44;  // 'D'
+    displayPacket[44] = 0x43;  // 'C'
+
+    // Calculate checksum (sum of bytes 0-44)
+    quint16 checksum = 0;
+    for (int i = 0; i < 45; ++i) {
+        checksum += static_cast<quint8>(displayPacket[i]);
+    }
+    displayPacket[45] = static_cast<char>(checksum & 0xFF);
+    displayPacket[46] = static_cast<char>((checksum >> 8) & 0xFF);
+    displayPacket[47] = 0x00;  // Reserved (Windows uses 0x00)
+
+    qDebug() << "Display packet:" << displayPacket.toHex();
+
+    if (!sendData(displayPacket)) {
+        return false;
+    }
+
+    // Step 4: Read display response
+    QByteArray displayResp = receiveData(48);
+    if (!displayResp.isEmpty()) {
+        qDebug() << "Display response:" << displayResp.toHex();
+    }
+
     return true;
 }
 
