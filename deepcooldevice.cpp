@@ -538,12 +538,23 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         return false;
     }
 
-    // Simple 48-byte packet
+    // Send status request (0x10) first - might be needed to switch to data mode
+    QByteArray statusPayload;
+    statusPayload.resize(38);
+    statusPayload.fill(0);
+    QByteArray statusPacket = buildPacket(CMD_STATUS_REQUEST, statusPayload);
+
+    sendData(statusPacket);
+    QByteArray statusResp = receiveData(48);
+    if (!statusResp.isEmpty()) {
+        qDebug() << "Status:" << statusResp.toHex();
+    }
+
+    // Now send display data
     quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 255.0f));
     quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 255.0f));
-    // Ensure non-zero usage for testing
     quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
-    if (cpuUsage < 1) cpuUsage = 50;  // Default to 50% for visibility
+    if (cpuUsage < 1) cpuUsage = 50;
 
     QByteArray payload;
     payload.resize(38);
@@ -554,13 +565,12 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     payload[21] = cpuUsage;  // CPU usage at byte 24
 
     QByteArray packet = buildPacket(CMD_UPDATE_DISPLAY, payload);
-    qDebug() << "Sending:" << packet.toHex();
+    qDebug() << "Display:" << packet.toHex();
 
     if (!sendData(packet)) {
         return false;
     }
 
-    // Read and print response
     QByteArray resp = receiveData(48);
     if (!resp.isEmpty()) {
         qDebug() << "Response:" << resp.toHex();
