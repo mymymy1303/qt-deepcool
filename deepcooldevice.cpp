@@ -548,10 +548,44 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     }
 
     // Windows software sequence (from USB capture):
-    // 1. Send status request (0x10) on endpoint 0x02
-    // 2. Read response on endpoint 0x82
-    // 3. Send display data (0x01) on endpoint 0x02
-    // 4. Read response on endpoint 0x82
+    // 1. Send mode command (0x04) on endpoint 0x01 to enable data display
+    // 2. Send status request (0x10) on endpoint 0x02
+    // 3. Read response on endpoint 0x82
+    // 4. Send display data (0x01) on endpoint 0x02
+    // 5. Read response on endpoint 0x82
+
+    // Step 0: Send mode enable command on endpoint 0x01
+    // Packet from capture: aa2e04 01 02 0001 ... 48494443 f801
+    QByteArray modePacket = QByteArray::fromHex(
+        "aa2e04010200010000000000000000000000000000000000000000000000000000000000000000000048494443f801");
+
+    qDebug() << "Mode packet size:" << modePacket.size() << "hex:" << modePacket.toHex();
+
+    // Send on endpoint 0x01 instead of 0x02
+    if (deviceInfo.type == DEVICE_TYPE_USB_VENDOR && deviceHandle) {
+        int bytesWritten = 0;
+        int ret = libusb_bulk_transfer(
+            deviceHandle,
+            0x01,  // Endpoint 1 OUT
+            (unsigned char*)modePacket.data(),
+            modePacket.size(),
+            &bytesWritten,
+            1000
+        );
+        if (ret < 0) {
+            qWarning() << "Failed to send mode command on EP1:" << libusb_error_name(ret);
+        } else {
+            qDebug() << "Sent mode command on EP1:" << bytesWritten << "bytes";
+            // Try to read response on endpoint 0x81
+            QByteArray modeResp(48, 0);
+            int bytesRead = 0;
+            ret = libusb_bulk_transfer(deviceHandle, 0x81, (unsigned char*)modeResp.data(), 48, &bytesRead, 500);
+            if (ret == 0 && bytesRead > 0) {
+                modeResp.resize(bytesRead);
+                qDebug() << "Mode response:" << modeResp.toHex();
+            }
+        }
+    }
 
     // Step 1: Send EXACT Windows status packet (48 bytes = 96 hex chars)
     // Structure: aa2e10 (3) + 38 zeros (38) + 48494443 (4) + 0002 (2) + 00 (1) = 48 bytes
