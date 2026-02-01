@@ -605,13 +605,9 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
     quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 127.0f));
 
-    // RAM usage - integer part in byte 20, decimal part in byte 21
+    // RAM usage - byte 9 controls RAM display (discovered through testing)
     float ramBounded = qBound(0.0f, data.ramUsage, 100.0f);
     quint8 memUsage = static_cast<quint8>(ramBounded);
-    quint8 memUsageDecimal = static_cast<quint8>((ramBounded - memUsage) * 10);  // Tenths place
-
-    // DEBUG: Force RAM to 99% to find which byte controls RAM display
-    memUsage = 99;
 
     // GHz format discovered through testing:
     // - Byte 21: GHz integer part (0-9)
@@ -646,16 +642,16 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     //   46-47: Checksum (little-endian)
 
     // Calculate "mystery bytes" based on observed Windows patterns
-    // Byte 9 seems related to CPU temp (higher temp = higher value)
-    quint8 byte9 = 99;  // DEBUG: Try 99 to see if this controls RAM
+    // Byte 9 controls RAM display (discovered through testing!)
+    quint8 byte9 = memUsage;  // RAM percentage
 
     // Byte 11 seems related to GPU temp
     quint8 byte11 = 0x09;  // Default
     if (gpuTemp < 35) byte11 = 0x05;
     else if (gpuTemp < 38) byte11 = 0x06;
 
-    // Byte 17 seems to vary with RAM
-    quint8 byte17 = 99;  // DEBUG: Try 99 to see if this controls RAM display
+    // Byte 17 - use a fixed value from Windows capture
+    quint8 byte17 = 0x06;
 
     // Byte 23 - try using GHz decimal representation
     // For MHz like 2162, GHz = 2.16, so decimal part = 16
@@ -671,7 +667,7 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     // Bytes 4-5: zeros
     displayPacket[6] = cpuUsage;  // CPU Usage %
     // Bytes 7-8: zeros
-    displayPacket[9] = byte9;     // Calculated based on CPU temp
+    displayPacket[9] = byte9;     // RAM percentage (discovered through testing!)
     // Byte 10: zero
     displayPacket[11] = byte11;   // Calculated based on GPU temp
     displayPacket[12] = 0x03;     // Constant
@@ -682,8 +678,8 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     displayPacket[17] = byte17;   // Calculated based on RAM
     displayPacket[18] = 0x0c;     // Constant
     // Byte 19: zero
-    displayPacket[20] = memUsage; // RAM Usage % (integer part)
-    displayPacket[21] = ghzInteger; // GHz integer part (NOT RAM decimal!)
+    displayPacket[20] = 0x07;     // Fixed value from Windows (byte 9 controls actual RAM display)
+    displayPacket[21] = ghzInteger; // GHz integer part
     // Byte 22: zero
     displayPacket[23] = byte23;   // Calculated based on MHz
     displayPacket[24] = static_cast<char>(ghzDecimal & 0xFF);         // GHz decimal low byte
