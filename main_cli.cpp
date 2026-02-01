@@ -564,8 +564,10 @@ int main(int argc, char *argv[])
     logInfo("");
 
     // NOTE: Disabled - Windows software doesn't send separate mode/alarm commands
-    // device.setDisplayMode(displayMode);
     // device.setAlarm(enableAlarm);
+
+    // Set display mode (affects what's shown in GHz position)
+    device.setDisplayMode(displayMode);
 
     // Initial CPU usage read (need two samples)
     getCPUUsage();

@@ -523,22 +523,10 @@ bool DeepCoolDevice::sendStatusRequest()
 
 bool DeepCoolDevice::setDisplayMode(DisplayMode mode)
 {
-    if (!isOpen()) {
-        return false;
-    }
-
-    QByteArray payload;
-    payload.append(static_cast<quint8>(mode));
-
-    QByteArray packet = buildPacket(CMD_SET_MODE, payload);
-
-    if (!sendData(packet)) {
-        qWarning() << "Failed to send display mode command";
-        return false;
-    }
-
+    // Store mode locally - affects what's shown in GHz position
+    // MODE_GPU_INFO: Show GPU temp instead of CPU GHz
     currentMode = mode;
-    qDebug() << "Display mode set to:" << mode;
+    qDebug() << "Display mode set to:" << mode << (mode == MODE_GPU_INFO ? "(GPU temp in GHz position)" : "(CPU GHz)");
     return true;
 }
 
@@ -606,19 +594,31 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 127.0f));
 
     // RAM usage - byte 9 controls RAM display (discovered through testing)
+    // Round to nearest integer (1.8% -> 2%, 1.4% -> 1%)
     float ramBounded = qBound(0.0f, data.ramUsage, 100.0f);
-    quint8 memUsage = static_cast<quint8>(ramBounded);
+    quint8 memUsage = static_cast<quint8>(qRound(ramBounded));
 
-    // GHz format discovered through testing:
-    // - Byte 21: GHz integer part (0-9)
-    // - Bytes 24-25: GHz decimal * 100 (little-endian)
-    // Example: 5.50 GHz = byte21=5, bytes24-25=5000
+    // GHz position format discovered through testing:
+    // - Byte 21: Integer part (0-9)
+    // - Bytes 24-25: Decimal * 100 (little-endian)
+    // Example: 5.50 = byte21=5, bytes24-25=5000
     //
-    // Convert MHz to this format:
-    // cpuMhz = 5500 -> 5.50 GHz -> byte21=5, decimal=50 -> bytes24-25=5000
-    float ghz = cpuMhz / 1000.0f;
-    quint8 ghzInteger = static_cast<quint8>(ghz);
-    quint16 ghzDecimal = static_cast<quint16>((ghz - ghzInteger) * 100) * 100;  // .50 -> 50 -> 5000
+    // MODE_GPU_INFO: Display GPU temp in GHz position (e.g., 45°C shows as "45.00")
+    // Other modes: Display CPU frequency as GHz
+    quint8 displayInteger = 0;
+    quint16 displayDecimal = 0;
+
+    if (currentMode == MODE_GPU_INFO) {
+        // GPU temp mode: show GPU temp in GHz position
+        // e.g., 45°C displays as "45.00"
+        displayInteger = gpuTemp;
+        displayDecimal = 0;  // No decimal for temperature
+    } else {
+        // Default: show CPU frequency as GHz
+        float ghz = cpuMhz / 1000.0f;
+        displayInteger = static_cast<quint8>(ghz);
+        displayDecimal = static_cast<quint16>((ghz - displayInteger) * 100) * 100;  // .50 -> 50 -> 5000
+    }
 
     // Build display packet - EXACT Windows protocol format:
     // Byte positions from USB capture analysis:
@@ -679,14 +679,14 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     displayPacket[18] = 0x0c;     // Constant
     // Byte 19: zero
     displayPacket[20] = 0x07;     // Fixed value from Windows (byte 9 controls actual RAM display)
-    displayPacket[21] = ghzInteger; // GHz integer part
+    displayPacket[21] = displayInteger; // Integer part (GHz or GPU temp)
     // Byte 22: zero
     displayPacket[23] = byte23;   // Calculated based on MHz
-    displayPacket[24] = static_cast<char>(ghzDecimal & 0xFF);         // GHz decimal low byte
-    displayPacket[25] = static_cast<char>((ghzDecimal >> 8) & 0xFF);  // GHz decimal high byte
+    displayPacket[24] = static_cast<char>(displayDecimal & 0xFF);         // Decimal low byte
+    displayPacket[25] = static_cast<char>((displayDecimal >> 8) & 0xFF);  // Decimal high byte
     // Byte 26: zero
-    displayPacket[27] = static_cast<char>(ghzDecimal & 0xFF);         // GHz decimal low byte (repeated)
-    displayPacket[28] = static_cast<char>((ghzDecimal >> 8) & 0xFF);  // GHz decimal high byte (repeated)
+    displayPacket[27] = static_cast<char>(displayDecimal & 0xFF);         // Decimal low byte (repeated)
+    displayPacket[28] = static_cast<char>((displayDecimal >> 8) & 0xFF);  // Decimal high byte (repeated)
     // Bytes 29-41: zeros
     displayPacket[42] = 0x48;     // 'H'
     displayPacket[43] = 0x49;     // 'I'
@@ -701,8 +701,11 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     displayPacket[46] = static_cast<char>(checksum & 0xFF);
     displayPacket[47] = static_cast<char>((checksum >> 8) & 0xFF);
 
-    qDebug() << "Display values - CPU:" << cpuTemp << "C," << cpuUsage << "% | GPU:" << gpuTemp << "C | RAM:" << memUsage << "% | GHz:" << ghzInteger << "." << (ghzDecimal/100);
-    qDebug() << "Mystery bytes - b9:" << Qt::hex << byte9 << "b11:" << byte11 << "b17:" << byte17 << "b23:" << byte23 << Qt::dec;
+    if (currentMode == MODE_GPU_INFO) {
+        qDebug() << "Display values - CPU:" << cpuTemp << "C," << cpuUsage << "% | GPU:" << gpuTemp << "C | RAM:" << memUsage << "% | GPU Temp:" << displayInteger << "C (in GHz pos)";
+    } else {
+        qDebug() << "Display values - CPU:" << cpuTemp << "C," << cpuUsage << "% | GPU:" << gpuTemp << "C | RAM:" << memUsage << "% | GHz:" << displayInteger << "." << (displayDecimal/100);
+    }
     qDebug() << "Display packet:" << displayPacket.toHex();
 
     if (!sendData(displayPacket)) {
