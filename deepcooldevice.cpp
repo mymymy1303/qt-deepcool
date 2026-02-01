@@ -617,9 +617,9 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     quint8 memUsage = static_cast<quint8>(ramBounded);
     quint8 memUsageDecimal = static_cast<quint8>((ramBounded - memUsage) * 10);  // Tenths place
 
-    // DEBUG: Force RAM to 2% to see if GHz display changes
+    // DEBUG: Force RAM to 2.4% to see if GHz display shows 5.10
     memUsage = 2;
-    memUsageDecimal = 0;
+    memUsageDecimal = 4;
 
     // Build display packet - EXACT Windows protocol format:
     // Byte positions from USB capture analysis:
