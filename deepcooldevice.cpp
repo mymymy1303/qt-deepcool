@@ -680,12 +680,12 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     displayPacket[21] = memUsageDecimal; // RAM Usage % (decimal part - tenths)
     // Byte 22: zero
     displayPacket[23] = byte23;   // Calculated based on MHz
-    displayPacket[24] = static_cast<char>(cpuMhz & 0xFF);         // MHz low byte
-    displayPacket[25] = static_cast<char>((cpuMhz >> 8) & 0xFF);  // MHz high byte
+    // Try: bytes 24-25 zero, only 27-28 has MHz
+    displayPacket[24] = 0x00;
+    displayPacket[25] = 0x00;
     // Byte 26: zero
-    // Bytes 27-28: Try setting to zero instead of repeating MHz
-    displayPacket[27] = 0x00;
-    displayPacket[28] = 0x00;
+    displayPacket[27] = static_cast<char>(cpuMhz & 0xFF);         // MHz low byte
+    displayPacket[28] = static_cast<char>((cpuMhz >> 8) & 0xFF);  // MHz high byte
     // Bytes 29-41: zeros
     displayPacket[42] = 0x48;     // 'H'
     displayPacket[43] = 0x49;     // 'I'
