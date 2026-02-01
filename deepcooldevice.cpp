@@ -653,11 +653,14 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     // Byte 17 - use a fixed value from Windows capture
     quint8 byte17 = 0x06;
 
-    // Byte 23 - try using GHz decimal representation
-    // For MHz like 2162, GHz = 2.16, so decimal part = 16
-    quint8 byte23 = static_cast<quint8>((cpuMhz % 1000) / 10);
-    // Clamp to observed range
-    if (byte23 < 10) byte23 = 0x0a;  // Use 0x0a for low values
+    // Byte 23 - affects decimal display
+    // In GPU mode, set to 0 for clean "XX.00" display
+    // In CPU mode, calculate from MHz
+    quint8 byte23 = 0;
+    if (currentMode != MODE_GPU_INFO) {
+        byte23 = static_cast<quint8>((cpuMhz % 1000) / 10);
+        if (byte23 < 10) byte23 = 0x0a;  // Use 0x0a for low values
+    }
 
     QByteArray displayPacket(48, 0);
     displayPacket[0] = static_cast<char>(0xAA);
