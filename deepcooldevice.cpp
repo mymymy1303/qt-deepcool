@@ -547,9 +547,39 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         return false;
     }
 
-    // MYSTIQUE 360 protocol from Windows USB capture (DeepCreative software)
-    // Uses 48-byte packets with AA 2E header on endpoint 0x02
-    // Command 0x01 with subcommand 0x22 = "Machine Info" display mode
+    // MYSTIQUE 360 protocol decoded from Windows USB capture (DeepCreative software)
+    // Pattern: Status request (0x10) → Response → Display data (0x01) → ACK
+    //
+    // Display packet structure (48 bytes):
+    // Byte  Value   Meaning
+    // ----  -----   -------
+    //  0-1  AA 2E   Header
+    //  2    01      Command (display data)
+    //  3    XX      CPU Temperature (°C)
+    //  4-5  00 00   zeros
+    //  6    XX      CPU Usage (%)
+    //  7-8  00 00   zeros
+    //  9    XX      Unknown (varies: 07-0b, seems related to load)
+    // 10    00      zero
+    // 11    XX      Unknown (varies: 04-09)
+    // 12    03      Constant
+    // 13    00      zero
+    // 14    XX      GPU Temperature (°C) - not displayed on screen
+    // 15    05      Constant
+    // 16    00      zero
+    // 17    XX      Unknown (varies: 02-07)
+    // 18    0C      Constant
+    // 19    00      zero
+    // 20    XX      RAM Usage (%)
+    // 21    XX      Unknown (varies: 01-05)
+    // 22    00      zero
+    // 23    XX      Unknown (varies: 1d, 27, 31, 3b, 4f)
+    // 24-25 XX XX   CPU MHz (little-endian)
+    // 26    00      zero
+    // 27-28 XX XX   CPU MHz repeated (little-endian)
+    // 29-41 00...   zeros (padding)
+    // 42-45 HIDC    Footer
+    // 46-47 XX XX   Checksum (little-endian)
 
     // First send status request (command 0x10)
     QByteArray statusPacket(48, 0);
@@ -576,66 +606,44 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         return false;
     }
 
-    // Read status response (64 bytes from device)
-    QByteArray statusResponse = receiveData(64);
+    // Read status response (48 bytes from device)
+    QByteArray statusResponse = receiveData(48);
     if (!statusResponse.isEmpty()) {
         qDebug() << "Status response:" << statusResponse.toHex();
     }
 
-    // Build display data packet (command 0x01, subcommand 0x22 = Machine Info)
-    // Protocol decoded from Windows USB capture:
-    //
-    // Byte:  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28
-    // Low:  aa 2e 01 24 00 00 01 00 00 07 00 09 03 00 24 05 00 06 0c 00 07 02 00 4f e9 03 00 e9 03
-    // High: aa 2e 01 5b 00 00 64 00 00 0b 00 06 03 00 21 05 00 03 0c 00 05 05 00 27 76 08 00 76 08
-    //             ^^ CPU temp  ^^ CPU%        ^^          ^^ GPU temp        ^^ RAM%     ^^ MHz (LE)
-    //
-    // Byte 3:  CPU Temperature (°C)
-    // Byte 6:  CPU Usage (%)
-    // Byte 9:  Unknown (varies: 07, 0b)
-    // Byte 11: Unknown (varies: 09, 06)
-    // Byte 12: Constant (03)
-    // Byte 14: GPU Temperature (°C)
-    // Byte 15: Constant (05)
-    // Byte 17: Unknown (varies: 06, 03)
-    // Byte 18: Constant (0c)
-    // Byte 20: RAM Usage (%)
-    // Byte 21: Unknown (varies: 02, 05)
-    // Byte 23: Unknown (varies: 4f, 27)
-    // Bytes 24-25: CPU MHz (little-endian)
-    // Bytes 27-28: CPU MHz repeated (little-endian)
-
+    // Build display data packet
     QByteArray displayPacket(48, 0);
     displayPacket[0] = static_cast<char>(0xAA);
     displayPacket[1] = 0x2E;
     displayPacket[2] = 0x01;  // Display command
 
-    // Byte 3: CPU Temperature
+    // Byte 3: CPU Temperature (°C)
     quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 127.0f));
     displayPacket[3] = static_cast<char>(cpuTemp);
 
     // Bytes 4-5: zeros
 
-    // Byte 6: CPU Usage %
+    // Byte 6: CPU Usage (%)
     quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
     displayPacket[6] = static_cast<char>(cpuUsage);
 
     // Bytes 7-8: zeros
 
-    // Byte 9: Unknown (use 0x07 as default from low-CPU capture)
-    displayPacket[9] = 0x07;
+    // Byte 9: Unknown - use value based on CPU load (07 at low, 0b at high)
+    displayPacket[9] = (cpuUsage > 50) ? 0x0b : 0x07;
 
     // Byte 10: zero
 
-    // Byte 11: Unknown (use 0x09 as default)
-    displayPacket[11] = 0x09;
+    // Byte 11: Unknown - use value based on CPU load (09 at low, 06 at high)
+    displayPacket[11] = (cpuUsage > 50) ? 0x06 : 0x09;
 
     // Byte 12: Constant 0x03
     displayPacket[12] = 0x03;
 
     // Byte 13: zero
 
-    // Byte 14: GPU Temperature
+    // Byte 14: GPU Temperature (°C) - sent but not displayed
     quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 127.0f));
     displayPacket[14] = static_cast<char>(gpuTemp);
 
@@ -644,25 +652,25 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
 
     // Byte 16: zero
 
-    // Byte 17: Unknown (use 0x06 as default)
-    displayPacket[17] = 0x06;
+    // Byte 17: Unknown - use value based on CPU load (06 at low, 02-03 at high)
+    displayPacket[17] = (cpuUsage > 50) ? 0x02 : 0x06;
 
     // Byte 18: Constant 0x0c
     displayPacket[18] = 0x0c;
 
     // Byte 19: zero
 
-    // Byte 20: RAM Usage %
+    // Byte 20: RAM Usage (%)
     quint8 memUsage = static_cast<quint8>(qBound(0.0f, data.ramUsage, 100.0f));
     displayPacket[20] = static_cast<char>(memUsage);
 
-    // Byte 21: Unknown (use 0x02 as default)
-    displayPacket[21] = 0x02;
+    // Byte 21: Unknown - use value based on RAM (02 at low, 05 at high)
+    displayPacket[21] = (memUsage > 10) ? 0x05 : 0x02;
 
     // Byte 22: zero
 
-    // Byte 23: Unknown (use 0x4f as default)
-    displayPacket[23] = 0x4f;
+    // Byte 23: Unknown - varies (1d, 27, 31, 3b, 4f) - use 0x1d as default
+    displayPacket[23] = 0x1d;
 
     // Bytes 24-25: CPU frequency in MHz (little-endian)
     quint16 cpuMhz = 3500;  // Default 3.5 GHz
@@ -682,9 +690,6 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     displayPacket[28] = static_cast<char>((cpuMhz >> 8) & 0xFF);
 
     // Bytes 29-41: zeros (padding)
-    for (int i = 29; i <= 41; ++i) {
-        displayPacket[i] = 0x00;
-    }
 
     // Bytes 42-45: Footer "HIDC"
     displayPacket[42] = 0x48;  // 'H'
@@ -707,8 +712,8 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         return false;
     }
 
-    // Read display response (64 bytes from device)
-    QByteArray displayResponse = receiveData(64);
+    // Read display response (48 bytes from device)
+    QByteArray displayResponse = receiveData(48);
     if (!displayResponse.isEmpty()) {
         qDebug() << "Display response:" << displayResponse.toHex();
     }
