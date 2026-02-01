@@ -604,7 +604,11 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 127.0f));
     quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
     quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 127.0f));
-    quint8 memUsage = static_cast<quint8>(qBound(0.0f, data.ramUsage, 100.0f));
+
+    // RAM usage - integer part in byte 20, decimal part in byte 21
+    float ramBounded = qBound(0.0f, data.ramUsage, 100.0f);
+    quint8 memUsage = static_cast<quint8>(ramBounded);
+    quint8 memUsageDecimal = static_cast<quint8>((ramBounded - memUsage) * 10);  // Tenths place
 
     // Build display packet - EXACT Windows protocol format:
     // Byte positions from USB capture analysis:
@@ -627,6 +631,28 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     //   42-45: Footer "HIDC"
     //   46-47: Checksum (little-endian)
 
+    // Calculate "mystery bytes" based on observed Windows patterns
+    // Byte 9 seems related to CPU temp (higher temp = higher value)
+    quint8 byte9 = 0x07;  // Default for low temps
+    if (cpuTemp >= 70) byte9 = 0x0b;
+    else if (cpuTemp >= 50) byte9 = 0x09;
+
+    // Byte 11 seems related to GPU temp
+    quint8 byte11 = 0x09;  // Default
+    if (gpuTemp < 35) byte11 = 0x05;
+    else if (gpuTemp < 38) byte11 = 0x06;
+
+    // Byte 17 seems to vary with RAM
+    quint8 byte17 = 0x06;  // Default
+    if (memUsage < 6) byte17 = 0x02;
+    else if (memUsage < 8) byte17 = 0x03;
+
+    // Byte 23 - try using GHz decimal representation
+    // For MHz like 2162, GHz = 2.16, so decimal part = 16
+    quint8 byte23 = static_cast<quint8>((cpuMhz % 1000) / 10);
+    // Clamp to observed range
+    if (byte23 < 10) byte23 = 0x0a;  // Use 0x0a for low values
+
     QByteArray displayPacket(48, 0);
     displayPacket[0] = static_cast<char>(0xAA);
     displayPacket[1] = 0x2E;
@@ -635,21 +661,21 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     // Bytes 4-5: zeros
     displayPacket[6] = cpuUsage;  // CPU Usage %
     // Bytes 7-8: zeros
-    displayPacket[9] = 0x07;      // Unknown - use typical low-CPU value
+    displayPacket[9] = byte9;     // Calculated based on CPU temp
     // Byte 10: zero
-    displayPacket[11] = 0x09;     // Unknown - use typical value
+    displayPacket[11] = byte11;   // Calculated based on GPU temp
     displayPacket[12] = 0x03;     // Constant
     // Byte 13: zero
     displayPacket[14] = gpuTemp;  // GPU Temperature
     displayPacket[15] = 0x05;     // Constant
     // Byte 16: zero
-    displayPacket[17] = 0x06;     // Unknown - use typical value
+    displayPacket[17] = byte17;   // Calculated based on RAM
     displayPacket[18] = 0x0c;     // Constant
     // Byte 19: zero
-    displayPacket[20] = memUsage; // RAM Usage %
-    displayPacket[21] = 0x05;     // Unknown - use value from high-CPU capture
+    displayPacket[20] = memUsage; // RAM Usage % (integer part)
+    displayPacket[21] = memUsageDecimal; // RAM Usage % (decimal part - tenths)
     // Byte 22: zero
-    displayPacket[23] = 0x1d;     // Unknown - use value from high-CPU capture
+    displayPacket[23] = byte23;   // Calculated based on MHz
     displayPacket[24] = static_cast<char>(cpuMhz & 0xFF);         // MHz low byte
     displayPacket[25] = static_cast<char>((cpuMhz >> 8) & 0xFF);  // MHz high byte
     // Byte 26: zero
@@ -669,7 +695,8 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     displayPacket[46] = static_cast<char>(checksum & 0xFF);
     displayPacket[47] = static_cast<char>((checksum >> 8) & 0xFF);
 
-    qDebug() << "Display values - CPU:" << cpuTemp << "C," << cpuUsage << "% | GPU:" << gpuTemp << "C | RAM:" << memUsage << "% | MHz:" << cpuMhz;
+    qDebug() << "Display values - CPU:" << cpuTemp << "C," << cpuUsage << "% | GPU:" << gpuTemp << "C | RAM:" << memUsage << "." << memUsageDecimal << "% | MHz:" << cpuMhz;
+    qDebug() << "Mystery bytes - b9:" << Qt::hex << byte9 << "b11:" << byte11 << "b17:" << byte17 << "b23:" << byte23 << Qt::dec;
     qDebug() << "Display packet:" << displayPacket.toHex();
 
     if (!sendData(displayPacket)) {
