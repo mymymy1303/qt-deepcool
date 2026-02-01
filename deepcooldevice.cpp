@@ -593,6 +593,17 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
     quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 127.0f));
 
+    // In GPU_FOCUS mode, swap CPU and GPU temps:
+    // - Main display shows GPU temp (with LED color ring)
+    // - Bottom position shows CPU temp
+    quint8 mainTemp = cpuTemp;      // Temperature for main display (affects LED color)
+    quint8 bottomTemp = gpuTemp;    // Temperature for bottom position (GHz area)
+
+    if (currentMode == MODE_GPU_FOCUS) {
+        mainTemp = gpuTemp;
+        bottomTemp = cpuTemp;
+    }
+
     // RAM usage - byte 9 controls RAM display (discovered through testing)
     // Round to nearest integer (1.8% -> 2%, 1.4% -> 1%)
     float ramBounded = qBound(0.0f, data.ramUsage, 100.0f);
@@ -603,21 +614,25 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     // - Bytes 24-25: Decimal * 100 (little-endian)
     // Example: 5.50 = byte21=5, bytes24-25=5000
     //
-    // MODE_GPU_INFO: Display GPU temp in GHz position (e.g., 45°C shows as "45.00")
+    // MODE_GPU_INFO: Display GPU temp in bottom position
+    // MODE_GPU_FOCUS: Display CPU temp in bottom position (GPU is main)
     // Other modes: Display CPU frequency as GHz
     quint8 displayInteger = 0;
     quint16 displayDecimal = 0;
 
     if (currentMode == MODE_GPU_INFO) {
-        // GPU temp mode: show GPU temp in GHz position
-        // e.g., 45°C displays as "45.00"
+        // GPU mode: show GPU temp in bottom position
         displayInteger = gpuTemp;
-        displayDecimal = 0;  // No decimal for temperature
+        displayDecimal = 0;
+    } else if (currentMode == MODE_GPU_FOCUS) {
+        // GPU focus mode: show CPU temp in bottom position
+        displayInteger = bottomTemp;  // CPU temp
+        displayDecimal = 0;
     } else {
         // Default: show CPU frequency as GHz
         float ghz = cpuMhz / 1000.0f;
         displayInteger = static_cast<quint8>(ghz);
-        displayDecimal = static_cast<quint16>((ghz - displayInteger) * 100) * 100;  // .50 -> 50 -> 5000
+        displayDecimal = static_cast<quint16>((ghz - displayInteger) * 100) * 100;
     }
 
     // Build display packet - EXACT Windows protocol format:
@@ -654,19 +669,19 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     quint8 byte17 = 0x06;
 
     // Byte 23 - affects decimal display
-    // In GPU mode, set to 0 for clean "XX.00" display
+    // In GPU/GPU_FOCUS mode, set to 0 for clean "XX.00" display
     // In CPU mode, calculate from MHz
     quint8 byte23 = 0;
-    if (currentMode != MODE_GPU_INFO) {
+    if (currentMode != MODE_GPU_INFO && currentMode != MODE_GPU_FOCUS) {
         byte23 = static_cast<quint8>((cpuMhz % 1000) / 10);
-        if (byte23 < 10) byte23 = 0x0a;  // Use 0x0a for low values
+        if (byte23 < 10) byte23 = 0x0a;
     }
 
     QByteArray displayPacket(48, 0);
     displayPacket[0] = static_cast<char>(0xAA);
     displayPacket[1] = 0x2E;
     displayPacket[2] = 0x01;      // Command: display data
-    displayPacket[3] = cpuTemp;   // CPU Temperature
+    displayPacket[3] = mainTemp;  // Main Temperature (CPU or GPU depending on mode)
     // Bytes 4-5: zeros
     displayPacket[6] = cpuUsage;  // CPU Usage %
     // Bytes 7-8: zeros
@@ -705,9 +720,11 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     displayPacket[47] = static_cast<char>((checksum >> 8) & 0xFF);
 
     if (currentMode == MODE_GPU_INFO) {
-        qDebug() << "Display values - CPU:" << cpuTemp << "C," << cpuUsage << "% | GPU:" << gpuTemp << "C | RAM:" << memUsage << "% | GPU Temp:" << displayInteger << "C (in GHz pos)";
+        qDebug() << "Display values - CPU:" << mainTemp << "C," << cpuUsage << "% | RAM:" << memUsage << "% | Bottom (GPU):" << displayInteger << "C";
+    } else if (currentMode == MODE_GPU_FOCUS) {
+        qDebug() << "Display values - Main (GPU):" << mainTemp << "C," << cpuUsage << "% | RAM:" << memUsage << "% | Bottom (CPU):" << bottomTemp << "C";
     } else {
-        qDebug() << "Display values - CPU:" << cpuTemp << "C," << cpuUsage << "% | GPU:" << gpuTemp << "C | RAM:" << memUsage << "% | GHz:" << displayInteger << "." << (displayDecimal/100);
+        qDebug() << "Display values - CPU:" << mainTemp << "C," << cpuUsage << "% | GPU:" << gpuTemp << "C | RAM:" << memUsage << "% | GHz:" << displayInteger << "." << (displayDecimal/100);
     }
     qDebug() << "Display packet:" << displayPacket.toHex();
 

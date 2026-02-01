@@ -416,6 +416,7 @@ DisplayMode parseDisplayMode(const QString& mode) {
     QString m = mode.toLower();
     if (m == "cpu" || m == "0") return MODE_CPU_INFO;
     if (m == "gpu" || m == "1") return MODE_GPU_INFO;
+    if (m == "gpu_focus" || m == "4") return MODE_GPU_FOCUS;
     if (m == "system" || m == "2") return MODE_SYSTEM_OVERVIEW;
     if (m == "custom" || m == "3") return MODE_CUSTOM;
     return MODE_CPU_INFO;
@@ -450,7 +451,7 @@ int main(int argc, char *argv[])
     parser.addOption(intervalOption);
 
     QCommandLineOption modeOption(QStringList() << "m" << "mode",
-        "Display mode: cpu, gpu, system, custom", "mode", "cpu");
+        "Display mode: cpu, gpu, gpu_focus", "mode", "cpu");
     parser.addOption(modeOption);
 
     QCommandLineOption fahrenheitOption(QStringList() << "f" << "fahrenheit",

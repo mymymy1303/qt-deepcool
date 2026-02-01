@@ -9,10 +9,11 @@
 #include "device.h"
 
 enum DisplayMode {
-    MODE_CPU_INFO = 0,
-    MODE_GPU_INFO = 1,
+    MODE_CPU_INFO = 0,      // CPU temp main, CPU GHz bottom
+    MODE_GPU_INFO = 1,      // CPU temp main, GPU temp bottom
     MODE_SYSTEM_OVERVIEW = 2,
-    MODE_CUSTOM = 3
+    MODE_CUSTOM = 3,
+    MODE_GPU_FOCUS = 4      // GPU temp main (with LED), CPU temp bottom
 };
 
 struct SystemData {
