@@ -600,8 +600,8 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         cpuMhz = 3500;
     }
 
-    // DEBUG: Try sending half the MHz value to see if display shows correct GHz
-    // If display shows double, then device might be adding bytes 24-25 and 27-28
+    // The device seems to add bytes 24-25 and 27-28 together, or doubles the value somehow
+    // So we send half the actual MHz to get correct display
     cpuMhz = cpuMhz / 2;
 
     // Get sensor values
