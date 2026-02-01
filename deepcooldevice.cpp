@@ -647,9 +647,7 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
 
     // Calculate "mystery bytes" based on observed Windows patterns
     // Byte 9 seems related to CPU temp (higher temp = higher value)
-    quint8 byte9 = 0x07;  // Default for low temps
-    if (cpuTemp >= 70) byte9 = 0x0b;
-    else if (cpuTemp >= 50) byte9 = 0x09;
+    quint8 byte9 = 99;  // DEBUG: Try 99 to see if this controls RAM
 
     // Byte 11 seems related to GPU temp
     quint8 byte11 = 0x09;  // Default
