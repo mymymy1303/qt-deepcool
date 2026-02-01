@@ -610,6 +610,9 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     quint8 memUsage = static_cast<quint8>(ramBounded);
     quint8 memUsageDecimal = static_cast<quint8>((ramBounded - memUsage) * 10);  // Tenths place
 
+    // DEBUG: Force RAM to 99% to find which byte controls RAM display
+    memUsage = 99;
+
     // GHz format discovered through testing:
     // - Byte 21: GHz integer part (0-9)
     // - Bytes 24-25: GHz decimal * 100 (little-endian)
