@@ -657,7 +657,7 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     else if (gpuTemp < 38) byte11 = 0x06;
 
     // Byte 17 seems to vary with RAM
-    quint8 byte17 = memUsage;  // Try using RAM value directly here
+    quint8 byte17 = 99;  // DEBUG: Try 99 to see if this controls RAM display
 
     // Byte 23 - try using GHz decimal representation
     // For MHz like 2162, GHz = 2.16, so decimal part = 16
