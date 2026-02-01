@@ -677,14 +677,20 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     // Get the maximum frequency across all CPU cores
     quint16 cpuMhz = 0;
     QDir cpuDir("/sys/devices/system/cpu");
-    QStringList cpus = cpuDir.entryList(QStringList() << "cpu[0-9]*", QDir::Dirs);
+    QStringList cpus = cpuDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
 
     for (const QString& cpu : cpus) {
+        // Only process directories that start with "cpu" followed by a digit
+        if (!cpu.startsWith("cpu") || cpu.length() < 4 || !cpu[3].isDigit()) {
+            continue;
+        }
+
         QString freqPath = QString("/sys/devices/system/cpu/%1/cpufreq/scaling_cur_freq").arg(cpu);
         QFile cpuFreqFile(freqPath);
         if (cpuFreqFile.open(QIODevice::ReadOnly)) {
             QString freqStr = QTextStream(&cpuFreqFile).readAll().trimmed();
-            quint16 freq = static_cast<quint16>(freqStr.toUInt() / 1000);  // Convert kHz to MHz
+            quint32 freqKhz = freqStr.toUInt();
+            quint16 freq = static_cast<quint16>(freqKhz / 1000);  // Convert kHz to MHz
             cpuFreqFile.close();
             if (freq > cpuMhz) {
                 cpuMhz = freq;
