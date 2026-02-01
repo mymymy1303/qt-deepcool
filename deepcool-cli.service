@@ -1,15 +1,14 @@
 [Unit]
 Description=DeepCool Digital Controller
-Documentation=https://github.com/Nortank12/deepcool-digital-linux
-After=network.target
+After=multi-user.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/deepcool-cli --interval 1000 --mode cpu --verbose
+ExecStart=/usr/local/bin/deepcool-cli --mode cpu --interval 1000
 Restart=on-failure
 RestartSec=5
 
-# Run as root for device access (or use udev rules and run as specific user)
+# Run as root for device access
 User=root
 
 # Environment
@@ -19,13 +18,6 @@ Environment=QT_QPA_PLATFORM=offscreen
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=deepcool-cli
-
-# Security hardening (optional)
-NoNewPrivileges=false
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/dev
-PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
