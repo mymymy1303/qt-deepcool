@@ -602,7 +602,7 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
 
     // DEBUG: Try sending half the MHz value to see if display shows correct GHz
     // If display shows double, then device might be adding bytes 24-25 and 27-28
-    // cpuMhz = cpuMhz / 2;
+    cpuMhz = cpuMhz / 2;
 
     // Get sensor values
     quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 127.0f));
@@ -680,12 +680,11 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     displayPacket[21] = memUsageDecimal; // RAM Usage % (decimal part - tenths)
     // Byte 22: zero
     displayPacket[23] = byte23;   // Calculated based on MHz
-    // Try: bytes 24-25 zero, only 27-28 has MHz
-    displayPacket[24] = 0x00;
-    displayPacket[25] = 0x00;
+    displayPacket[24] = static_cast<char>(cpuMhz & 0xFF);         // MHz low byte
+    displayPacket[25] = static_cast<char>((cpuMhz >> 8) & 0xFF);  // MHz high byte
     // Byte 26: zero
-    displayPacket[27] = static_cast<char>(cpuMhz & 0xFF);         // MHz low byte
-    displayPacket[28] = static_cast<char>((cpuMhz >> 8) & 0xFF);  // MHz high byte
+    displayPacket[27] = static_cast<char>(cpuMhz & 0xFF);         // MHz low byte (repeated)
+    displayPacket[28] = static_cast<char>((cpuMhz >> 8) & 0xFF);  // MHz high byte (repeated)
     // Bytes 29-41: zeros
     displayPacket[42] = 0x48;     // 'H'
     displayPacket[43] = 0x49;     // 'I'
