@@ -600,13 +600,6 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         cpuMhz = 3500;
     }
 
-    // The device seems to add bytes 24-25 and 27-28 together, or doubles the value somehow
-    // So we send half the actual MHz to get correct display
-    // cpuMhz = cpuMhz / 2;
-
-    // DEBUG: Send a fixed value of 1000 MHz to see what displays
-    cpuMhz = 1000;
-
     // Get sensor values
     quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 127.0f));
     quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
@@ -617,9 +610,16 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     quint8 memUsage = static_cast<quint8>(ramBounded);
     quint8 memUsageDecimal = static_cast<quint8>((ramBounded - memUsage) * 10);  // Tenths place
 
-    // DEBUG: Force RAM to 2.4% to see if GHz display shows 5.10
-    memUsage = 2;
-    memUsageDecimal = 4;
+    // GHz format discovered through testing:
+    // - Byte 21: GHz integer part (0-9)
+    // - Bytes 24-25: GHz decimal * 100 (little-endian)
+    // Example: 5.50 GHz = byte21=5, bytes24-25=5000
+    //
+    // Convert MHz to this format:
+    // cpuMhz = 5500 -> 5.50 GHz -> byte21=5, decimal=50 -> bytes24-25=5000
+    float ghz = cpuMhz / 1000.0f;
+    quint8 ghzInteger = static_cast<quint8>(ghz);
+    quint16 ghzDecimal = static_cast<quint16>((ghz - ghzInteger) * 100) * 100;  // .50 -> 50 -> 5000
 
     // Build display packet - EXACT Windows protocol format:
     // Byte positions from USB capture analysis:
@@ -684,14 +684,14 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     displayPacket[18] = 0x0c;     // Constant
     // Byte 19: zero
     displayPacket[20] = memUsage; // RAM Usage % (integer part)
-    displayPacket[21] = memUsageDecimal; // RAM Usage % (decimal part - tenths)
+    displayPacket[21] = ghzInteger; // GHz integer part (NOT RAM decimal!)
     // Byte 22: zero
     displayPacket[23] = byte23;   // Calculated based on MHz
-    displayPacket[24] = static_cast<char>(cpuMhz & 0xFF);         // MHz low byte
-    displayPacket[25] = static_cast<char>((cpuMhz >> 8) & 0xFF);  // MHz high byte
+    displayPacket[24] = static_cast<char>(ghzDecimal & 0xFF);         // GHz decimal low byte
+    displayPacket[25] = static_cast<char>((ghzDecimal >> 8) & 0xFF);  // GHz decimal high byte
     // Byte 26: zero
-    displayPacket[27] = static_cast<char>(cpuMhz & 0xFF);         // MHz low byte (repeated)
-    displayPacket[28] = static_cast<char>((cpuMhz >> 8) & 0xFF);  // MHz high byte (repeated)
+    displayPacket[27] = static_cast<char>(ghzDecimal & 0xFF);         // GHz decimal low byte (repeated)
+    displayPacket[28] = static_cast<char>((ghzDecimal >> 8) & 0xFF);  // GHz decimal high byte (repeated)
     // Bytes 29-41: zeros
     displayPacket[42] = 0x48;     // 'H'
     displayPacket[43] = 0x49;     // 'I'
@@ -706,7 +706,7 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     displayPacket[46] = static_cast<char>(checksum & 0xFF);
     displayPacket[47] = static_cast<char>((checksum >> 8) & 0xFF);
 
-    qDebug() << "Display values - CPU:" << cpuTemp << "C," << cpuUsage << "% | GPU:" << gpuTemp << "C | RAM:" << memUsage << "." << memUsageDecimal << "% | MHz:" << cpuMhz;
+    qDebug() << "Display values - CPU:" << cpuTemp << "C," << cpuUsage << "% | GPU:" << gpuTemp << "C | RAM:" << memUsage << "% | GHz:" << ghzInteger << "." << (ghzDecimal/100);
     qDebug() << "Mystery bytes - b9:" << Qt::hex << byte9 << "b11:" << byte11 << "b17:" << byte17 << "b23:" << byte23 << Qt::dec;
     qDebug() << "Display packet:" << displayPacket.toHex();
 
