@@ -602,7 +602,10 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
 
     // The device seems to add bytes 24-25 and 27-28 together, or doubles the value somehow
     // So we send half the actual MHz to get correct display
-    cpuMhz = cpuMhz / 2;
+    // cpuMhz = cpuMhz / 2;
+
+    // DEBUG: Send a fixed value of 1000 MHz to see what displays
+    cpuMhz = 1000;
 
     // Get sensor values
     quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 127.0f));
