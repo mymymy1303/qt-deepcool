@@ -444,29 +444,26 @@ QByteArray DeepCoolDevice::buildPacket(quint8 command, const QByteArray &payload
     // Byte 2: Command
     packet[2] = command;
 
-    // Bytes 3-40: Payload data (38 bytes available)
-    if (!payload.isEmpty() && payload.size() <= 38) {
+    // Bytes 3-41: Payload data (39 bytes available)
+    if (!payload.isEmpty() && payload.size() <= 39) {
         for (int i = 0; i < payload.size(); ++i) {
             packet[3 + i] = payload[i];
         }
     }
 
-    // Bytes 41-44: Footer "HIDC" (0x48 0x49 0x44 0x43)
-    packet[41] = 0x48;  // 'H'
-    packet[42] = 0x49;  // 'I'
-    packet[43] = 0x44;  // 'D'
-    packet[44] = 0x43;  // 'C'
+    // Bytes 42-45: Footer "HIDC" (0x48 0x49 0x44 0x43)
+    packet[42] = 0x48;  // 'H'
+    packet[43] = 0x49;  // 'I'
+    packet[44] = 0x44;  // 'D'
+    packet[45] = 0x43;  // 'C'
 
-    // Bytes 45-46: Checksum (simple sum of bytes 0-44, little-endian)
+    // Bytes 46-47: Checksum (simple sum of bytes 0-45, little-endian)
     quint16 checksum = 0;
-    for (int i = 0; i < 45; ++i) {
+    for (int i = 0; i < 46; ++i) {
         checksum += static_cast<quint8>(packet[i]);
     }
-    packet[45] = static_cast<quint8>(checksum & 0xFF);         // Low byte first
-    packet[46] = static_cast<quint8>((checksum >> 8) & 0xFF);  // High byte second
-
-    // Byte 47: Reserved/padding
-    packet[47] = 0x02;
+    packet[46] = static_cast<quint8>(checksum & 0xFF);         // Low byte first
+    packet[47] = static_cast<quint8>((checksum >> 8) & 0xFF);  // High byte second
 
     return packet;
 }
@@ -494,15 +491,18 @@ bool DeepCoolDevice::sendStatusRequest()
     packet[0] = static_cast<char>(0xAA);
     packet[1] = 0x2E;
     packet[2] = 0x10;  // Status request command
-    // Bytes 3-40 are zeros (payload)
-    packet[41] = 0x48;  // 'H'
-    packet[42] = 0x49;  // 'I'
-    packet[43] = 0x44;  // 'D'
-    packet[44] = 0x43;  // 'C'
-    // Checksum: 0xAA + 0x2E + 0x10 + 0x48 + 0x49 + 0x44 + 0x43 = 0x200
-    packet[45] = 0x00;  // Low byte
-    packet[46] = 0x02;  // High byte
-    packet[47] = 0x00;  // Reserved
+    // Bytes 3-41 are zeros (payload)
+    packet[42] = 0x48;  // 'H'
+    packet[43] = 0x49;  // 'I'
+    packet[44] = 0x44;  // 'D'
+    packet[45] = 0x43;  // 'C'
+    // Checksum: sum of bytes 0-45
+    quint16 checksum = 0;
+    for (int i = 0; i < 46; ++i) {
+        checksum += static_cast<quint8>(packet[i]);
+    }
+    packet[46] = static_cast<char>(checksum & 0xFF);
+    packet[47] = static_cast<char>((checksum >> 8) & 0xFF);
 
     qDebug() << "Sending status packet:" << packet.toHex();
 
@@ -512,7 +512,7 @@ bool DeepCoolDevice::sendStatusRequest()
     }
 
     // Read response
-    QByteArray response = receiveData(48);
+    QByteArray response = receiveData(64);
     if (!response.isEmpty()) {
         qDebug() << "Status response:" << response.toHex();
     }
@@ -547,78 +547,146 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         return false;
     }
 
-    // MYSTIQUE 360 uses a completely different protocol than other DeepCool devices!
-    // Based on working Rust code from GitHub discussion:
-    // - Uses endpoint 0x01 (not 0x02)
-    // - Packet starts with 0x1b 0x00 (not 0xaa 0x2e)
-    // - Different packet structure entirely
+    // MYSTIQUE 360 protocol from Windows USB capture (DeepCreative software)
+    // Uses 48-byte packets with AA 2E header on endpoint 0x02
+    // Command 0x01 with subcommand 0x22 = "Machine Info" display mode
 
-    // Build MYSTIQUE-specific packet (34 bytes based on working Rust implementation)
-    QByteArray packet;
-    packet.resize(34);
-    packet.fill(0);
+    // First send status request (command 0x10)
+    QByteArray statusPacket(48, 0);
+    statusPacket[0] = static_cast<char>(0xAA);
+    statusPacket[1] = 0x2E;
+    statusPacket[2] = 0x10;  // Status command
+    // Bytes 3-41 are zeros
+    statusPacket[42] = 0x48;  // 'H'
+    statusPacket[43] = 0x49;  // 'I'
+    statusPacket[44] = 0x44;  // 'D'
+    statusPacket[45] = 0x43;  // 'C'
+    // Checksum: sum of bytes 0-45
+    quint16 statusChecksum = 0;
+    for (int i = 0; i < 46; ++i) {
+        statusChecksum += static_cast<quint8>(statusPacket[i]);
+    }
+    statusPacket[46] = static_cast<char>(statusChecksum & 0xFF);
+    statusPacket[47] = static_cast<char>((statusChecksum >> 8) & 0xFF);
 
-    // Header and control bytes (from working Rust implementation)
-    packet[0] = 0x1b;
-    packet[1] = 0x00;
-    packet[2] = static_cast<char>(0xf0);
-    packet[3] = 0x16;
-    packet[4] = static_cast<char>(0xcc);
-    packet[5] = 0x21;
-    packet[6] = 0x01;
-    packet[7] = static_cast<char>(0xe6);
-    packet[8] = static_cast<char>(0xff);
-    packet[9] = static_cast<char>(0xff);
-    packet[10] = 0x00;
-    packet[11] = 0x00;
-    packet[12] = 0x00;
-    packet[13] = 0x00;
-    packet[14] = 0x09;
-    packet[15] = 0x00;
-    packet[16] = 0x00;
-    packet[17] = 0x02;
-    packet[18] = 0x00;
-    packet[19] = 0x02;
-    packet[20] = 0x00;
-    packet[21] = 0x01;
-    packet[22] = 0x03;
-    packet[23] = 0x40;
-    packet[24] = 0x00;
-    packet[25] = 0x00;
-    packet[26] = 0x00;
-    // RGB color bytes (27-29) - use temperature to set color
-    quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 100.0f));
-    // Color based on temp: green (cool) -> yellow -> red (hot)
-    quint8 r = (cpuTemp > 50) ? 255 : (cpuTemp * 5);
-    quint8 g = (cpuTemp < 50) ? 255 : (255 - (cpuTemp - 50) * 5);
-    quint8 b = 0;
-    packet[27] = static_cast<char>(r);
-    packet[28] = static_cast<char>(g);
-    packet[29] = static_cast<char>(b);
-    // Additional data bytes
-    packet[30] = static_cast<char>(0xf5);
-    packet[31] = static_cast<char>(0xf6);
-    packet[32] = static_cast<char>(0xf7);
-    packet[33] = 0x00;
+    qDebug() << "Status packet:" << statusPacket.toHex();
 
-    qDebug() << "MYSTIQUE packet (EP1):" << packet.toHex();
+    if (!sendData(statusPacket)) {
+        qWarning() << "Failed to send status request";
+        return false;
+    }
 
-    // Send on endpoint 0x01 (MYSTIQUE-specific)
-    if (deviceInfo.type == DEVICE_TYPE_USB_VENDOR && deviceHandle) {
-        int bytesWritten = 0;
-        int ret = libusb_bulk_transfer(
-            deviceHandle,
-            0x01,  // Endpoint 1 OUT - MYSTIQUE uses this!
-            (unsigned char*)packet.data(),
-            packet.size(),
-            &bytesWritten,
-            1000
-        );
-        if (ret < 0) {
-            qWarning() << "Failed to send MYSTIQUE packet:" << libusb_error_name(ret);
-            return false;
-        }
-        qDebug() << "Sent" << bytesWritten << "bytes to MYSTIQUE on EP1";
+    // Read status response (64 bytes from device)
+    QByteArray statusResponse = receiveData(64);
+    if (!statusResponse.isEmpty()) {
+        qDebug() << "Status response:" << statusResponse.toHex();
+    }
+
+    // Build display data packet (command 0x01, subcommand 0x22 = Machine Info)
+    // Based on captured Windows packet:
+    // AA 2E 01 22 00 00 00 00 00 04 00 09 03 00 24 05 00 07 0C 00 0A
+    // 01 00 0A C7 03 00 C7 03 00 00 00 00 00 00 00 00 00 00 00 00 00
+    // 48 49 44 43 [checksum]
+
+    QByteArray displayPacket(48, 0);
+    displayPacket[0] = static_cast<char>(0xAA);
+    displayPacket[1] = 0x2E;
+    displayPacket[2] = 0x01;  // Display command
+    displayPacket[3] = 0x22;  // Subcommand: Machine Info mode
+
+    // Bytes 4-8: zeros (padding/reserved)
+    displayPacket[4] = 0x00;
+    displayPacket[5] = 0x00;
+    displayPacket[6] = 0x00;
+    displayPacket[7] = 0x00;
+    displayPacket[8] = 0x00;
+
+    // Byte 9: CPU usage percentage (0-100)
+    quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
+    displayPacket[9] = static_cast<char>(cpuUsage);
+    displayPacket[10] = 0x00;
+
+    // Bytes 11-12: Unknown (from capture: 09 03) - possibly display config
+    displayPacket[11] = 0x09;
+    displayPacket[12] = 0x03;
+
+    // Byte 13: zeros
+    displayPacket[13] = 0x00;
+
+    // Bytes 14-15: CPU temperature (little-endian, integer part)
+    quint16 cpuTemp = static_cast<quint16>(qBound(0.0f, data.cpuTemp, 127.0f));
+    displayPacket[14] = static_cast<char>(cpuTemp & 0xFF);
+    displayPacket[15] = static_cast<char>((cpuTemp >> 8) & 0xFF);
+
+    // Bytes 16-17: Unknown (from capture: 00 07)
+    displayPacket[16] = 0x00;
+    displayPacket[17] = 0x07;
+
+    // Bytes 18-19: Memory usage percentage (little-endian)
+    quint8 memUsage = static_cast<quint8>(qBound(0.0f, data.ramUsage, 100.0f));
+    displayPacket[18] = static_cast<char>(memUsage);
+    displayPacket[19] = 0x00;
+
+    // Bytes 20-21: Unknown (from capture: 0A 01)
+    displayPacket[20] = 0x0A;
+    displayPacket[21] = 0x01;
+
+    // Byte 22: zeros
+    displayPacket[22] = 0x00;
+
+    // Byte 23: Unknown (from capture: 0A)
+    displayPacket[23] = 0x0A;
+
+    // Bytes 24-25: CPU frequency in MHz (little-endian)
+    // Get CPU frequency - use a reasonable default if not available
+    quint16 cpuMhz = 3500;  // Default 3.5 GHz
+    // Try to read actual CPU frequency from /proc/cpuinfo or /sys
+    QFile cpuFreqFile("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq");
+    if (cpuFreqFile.open(QIODevice::ReadOnly)) {
+        QString freqStr = cpuFreqFile.readLine().trimmed();
+        cpuMhz = static_cast<quint16>(freqStr.toUInt() / 1000);  // Convert kHz to MHz
+        cpuFreqFile.close();
+    }
+    displayPacket[24] = static_cast<char>(cpuMhz & 0xFF);
+    displayPacket[25] = static_cast<char>((cpuMhz >> 8) & 0xFF);
+
+    // Byte 26: zeros
+    displayPacket[26] = 0x00;
+
+    // Bytes 27-28: CPU frequency again (repeated in capture)
+    displayPacket[27] = static_cast<char>(cpuMhz & 0xFF);
+    displayPacket[28] = static_cast<char>((cpuMhz >> 8) & 0xFF);
+
+    // Bytes 29-41: zeros (padding)
+    for (int i = 29; i <= 41; ++i) {
+        displayPacket[i] = 0x00;
+    }
+
+    // Bytes 42-45: Footer "HIDC"
+    displayPacket[42] = 0x48;  // 'H'
+    displayPacket[43] = 0x49;  // 'I'
+    displayPacket[44] = 0x44;  // 'D'
+    displayPacket[45] = 0x43;  // 'C'
+
+    // Bytes 46-47: Checksum (sum of bytes 0-45, little-endian)
+    quint16 checksum = 0;
+    for (int i = 0; i < 46; ++i) {
+        checksum += static_cast<quint8>(displayPacket[i]);
+    }
+    displayPacket[46] = static_cast<char>(checksum & 0xFF);
+    displayPacket[47] = static_cast<char>((checksum >> 8) & 0xFF);
+
+    qDebug() << "Display packet:" << displayPacket.toHex();
+
+    if (!sendData(displayPacket)) {
+        qWarning() << "Failed to send display data";
+        return false;
+    }
+
+    // Read display response (64 bytes from device)
+    QByteArray displayResponse = receiveData(64);
+    if (!displayResponse.isEmpty()) {
+        qDebug() << "Display response:" << displayResponse.toHex();
     }
 
     return true;
