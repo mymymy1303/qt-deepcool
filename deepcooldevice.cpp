@@ -576,7 +576,7 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         qDebug() << "Status response:" << statusResponse.toHex();
     }
 
-    // Get CPU frequency first (needed for setting other bytes)
+    // Get CPU frequency (max across all cores)
     quint16 cpuMhz = 0;
     QDir cpuDir("/sys/devices/system/cpu");
     QStringList cpus = cpuDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
@@ -600,61 +600,68 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
         cpuMhz = 3500;
     }
 
-    // Get other values
+    // Get sensor values
     quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 127.0f));
     quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
     quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 127.0f));
     quint8 memUsage = static_cast<quint8>(qBound(0.0f, data.ramUsage, 100.0f));
 
-    // Build display packet - matching Windows protocol exactly
-    // Bytes 9, 11, 17, 21 vary based on CPU MHz (from Windows capture analysis):
-    // MHz < 1000:  09=07, 11=09, 17=06/07, 21=01/02/04/05
-    // MHz 1000-1500: 09=09/0a, 11=04/07, 17=04/06, 21=05
-    // MHz > 1500:  09=0b, 11=05/06, 17=02/03, 21=05
-
-    quint8 byte9, byte11, byte17, byte21;
-    if (cpuMhz > 1500) {
-        byte9 = 0x0b;
-        byte11 = 0x05;
-        byte17 = 0x02;
-        byte21 = 0x05;
-    } else if (cpuMhz > 1000) {
-        byte9 = 0x09;
-        byte11 = 0x07;
-        byte17 = 0x04;
-        byte21 = 0x05;
-    } else {
-        byte9 = 0x07;
-        byte11 = 0x09;
-        byte17 = 0x06;
-        byte21 = 0x02;
-    }
+    // Build display packet - EXACT Windows protocol format:
+    // Byte positions from USB capture analysis:
+    //   0-1: Header (0xAA 0x2E)
+    //   2: Command (0x01)
+    //   3: CPU Temperature
+    //   6: CPU Usage %
+    //   9: Unknown (varies 0x07-0x0b based on CPU temp range)
+    //   11: Unknown (varies, often 0x05-0x09)
+    //   12: Constant 0x03
+    //   14: GPU Temperature
+    //   15: Constant 0x05
+    //   17: Unknown (varies 0x02-0x07)
+    //   18: Constant 0x0c
+    //   20: RAM Usage %
+    //   21: Unknown (varies 0x01-0x05)
+    //   23: Unknown (varies)
+    //   24-25: CPU MHz (little-endian)
+    //   27-28: CPU MHz repeated (little-endian)
+    //   42-45: Footer "HIDC"
+    //   46-47: Checksum (little-endian)
 
     QByteArray displayPacket(48, 0);
     displayPacket[0] = static_cast<char>(0xAA);
     displayPacket[1] = 0x2E;
-    displayPacket[2] = 0x01;      // Command
+    displayPacket[2] = 0x01;      // Command: display data
     displayPacket[3] = cpuTemp;   // CPU Temperature
+    // Bytes 4-5: zeros
     displayPacket[6] = cpuUsage;  // CPU Usage %
-    displayPacket[9] = byte9;     // Varies with MHz
-    displayPacket[11] = byte11;   // Varies with MHz
+    // Bytes 7-8: zeros
+    displayPacket[9] = 0x07;      // Unknown - use typical low-CPU value
+    // Byte 10: zero
+    displayPacket[11] = 0x09;     // Unknown - use typical value
     displayPacket[12] = 0x03;     // Constant
+    // Byte 13: zero
     displayPacket[14] = gpuTemp;  // GPU Temperature
     displayPacket[15] = 0x05;     // Constant
-    displayPacket[17] = byte17;   // Varies with MHz
+    // Byte 16: zero
+    displayPacket[17] = 0x06;     // Unknown - use typical value
     displayPacket[18] = 0x0c;     // Constant
+    // Byte 19: zero
     displayPacket[20] = memUsage; // RAM Usage %
-    displayPacket[21] = byte21;   // Varies with MHz
-    displayPacket[23] = 0x1d;     // Unknown constant
-    displayPacket[24] = static_cast<char>(cpuMhz & 0xFF);
-    displayPacket[25] = static_cast<char>((cpuMhz >> 8) & 0xFF);
-    displayPacket[27] = static_cast<char>(cpuMhz & 0xFF);
-    displayPacket[28] = static_cast<char>((cpuMhz >> 8) & 0xFF);
+    displayPacket[21] = 0x05;     // Unknown - use value from high-CPU capture
+    // Byte 22: zero
+    displayPacket[23] = 0x1d;     // Unknown - use value from high-CPU capture
+    displayPacket[24] = static_cast<char>(cpuMhz & 0xFF);         // MHz low byte
+    displayPacket[25] = static_cast<char>((cpuMhz >> 8) & 0xFF);  // MHz high byte
+    // Byte 26: zero
+    displayPacket[27] = static_cast<char>(cpuMhz & 0xFF);         // MHz low byte (repeated)
+    displayPacket[28] = static_cast<char>((cpuMhz >> 8) & 0xFF);  // MHz high byte (repeated)
+    // Bytes 29-41: zeros
     displayPacket[42] = 0x48;     // 'H'
     displayPacket[43] = 0x49;     // 'I'
     displayPacket[44] = 0x44;     // 'D'
     displayPacket[45] = 0x43;     // 'C'
 
+    // Calculate checksum (sum of bytes 0-45)
     quint16 checksum = 0;
     for (int i = 0; i < 46; ++i) {
         checksum += static_cast<quint8>(displayPacket[i]);
@@ -662,7 +669,7 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     displayPacket[46] = static_cast<char>(checksum & 0xFF);
     displayPacket[47] = static_cast<char>((checksum >> 8) & 0xFF);
 
-    qDebug() << "Display values - CPU:" << cpuTemp << "C," << cpuUsage << "% | RAM:" << memUsage << "% | MHz:" << cpuMhz;
+    qDebug() << "Display values - CPU:" << cpuTemp << "C," << cpuUsage << "% | GPU:" << gpuTemp << "C | RAM:" << memUsage << "% | MHz:" << cpuMhz;
     qDebug() << "Display packet:" << displayPacket.toHex();
 
     if (!sendData(displayPacket)) {
