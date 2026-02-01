@@ -141,29 +141,75 @@ bool daemonize() {
 }
 
 float getCPUTemperature(bool useFahrenheit) {
-    // Try multiple thermal zone sources
-    QStringList thermalPaths = {
-        "/sys/class/thermal/thermal_zone0/temp",
-        "/sys/class/hwmon/hwmon0/temp1_input",
-        "/sys/class/hwmon/hwmon1/temp1_input",
-        "/sys/class/hwmon/hwmon2/temp1_input"
-    };
+    float celsius = 0.0f;
 
-    for (const QString& path : thermalPaths) {
-        QFile tempFile(path);
-        if (tempFile.open(QIODevice::ReadOnly)) {
-            QTextStream in(&tempFile);
-            QString temp = in.readAll().trimmed();
-            float celsius = temp.toFloat() / 1000.0f;
-            tempFile.close();
+    // First, try to find coretemp (Intel) or k10temp (AMD) in hwmon
+    // This gives the actual CPU package temperature like 'sensors' command
+    QDir hwmonDir("/sys/class/hwmon");
+    QStringList hwmons = hwmonDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
 
-            if (celsius > 0 && celsius < 150) {  // Sanity check
-                if (useFahrenheit) {
-                    return celsius * 9.0f / 5.0f + 32.0f;
+    for (const QString& hwmon : hwmons) {
+        QString namePath = QString("/sys/class/hwmon/%1/name").arg(hwmon);
+        QFile nameFile(namePath);
+        if (nameFile.open(QIODevice::ReadOnly)) {
+            QString name = QTextStream(&nameFile).readAll().trimmed();
+            nameFile.close();
+
+            // Intel CPU: coretemp, AMD CPU: k10temp
+            if (name == "coretemp" || name == "k10temp") {
+                // Try to find the package/Tctl temperature (usually temp1)
+                // Also check for highest core temperature
+                float maxTemp = 0.0f;
+
+                // Check temp1 through temp20 (covers most CPUs)
+                for (int i = 1; i <= 20; i++) {
+                    QString tempPath = QString("/sys/class/hwmon/%1/temp%2_input").arg(hwmon).arg(i);
+                    QFile tempFile(tempPath);
+                    if (tempFile.open(QIODevice::ReadOnly)) {
+                        float temp = QTextStream(&tempFile).readAll().trimmed().toFloat() / 1000.0f;
+                        tempFile.close();
+                        if (temp > maxTemp && temp < 150) {
+                            maxTemp = temp;
+                        }
+                    }
                 }
-                return celsius;
+
+                if (maxTemp > 0) {
+                    celsius = maxTemp;
+                    break;
+                }
             }
         }
+    }
+
+    // Fallback: try thermal zones if hwmon didn't work
+    if (celsius <= 0) {
+        QStringList thermalPaths = {
+            "/sys/class/thermal/thermal_zone0/temp",
+            "/sys/class/thermal/thermal_zone1/temp",
+            "/sys/class/thermal/thermal_zone2/temp"
+        };
+
+        for (const QString& path : thermalPaths) {
+            QFile tempFile(path);
+            if (tempFile.open(QIODevice::ReadOnly)) {
+                QTextStream in(&tempFile);
+                QString temp = in.readAll().trimmed();
+                float tempCelsius = temp.toFloat() / 1000.0f;
+                tempFile.close();
+
+                if (tempCelsius > celsius && tempCelsius < 150) {
+                    celsius = tempCelsius;
+                }
+            }
+        }
+    }
+
+    if (celsius > 0) {
+        if (useFahrenheit) {
+            return celsius * 9.0f / 5.0f + 32.0f;
+        }
+        return celsius;
     }
 
     return 0.0f;

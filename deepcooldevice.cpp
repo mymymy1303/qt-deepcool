@@ -2,6 +2,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QTextStream>
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
@@ -673,12 +674,27 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     displayPacket[23] = 0x1d;
 
     // Bytes 24-25: CPU frequency in MHz (little-endian)
-    quint16 cpuMhz = 3500;  // Default 3.5 GHz
-    QFile cpuFreqFile("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq");
-    if (cpuFreqFile.open(QIODevice::ReadOnly)) {
-        QString freqStr = cpuFreqFile.readLine().trimmed();
-        cpuMhz = static_cast<quint16>(freqStr.toUInt() / 1000);  // Convert kHz to MHz
-        cpuFreqFile.close();
+    // Get the maximum frequency across all CPU cores
+    quint16 cpuMhz = 0;
+    QDir cpuDir("/sys/devices/system/cpu");
+    QStringList cpus = cpuDir.entryList(QStringList() << "cpu[0-9]*", QDir::Dirs);
+
+    for (const QString& cpu : cpus) {
+        QString freqPath = QString("/sys/devices/system/cpu/%1/cpufreq/scaling_cur_freq").arg(cpu);
+        QFile cpuFreqFile(freqPath);
+        if (cpuFreqFile.open(QIODevice::ReadOnly)) {
+            QString freqStr = QTextStream(&cpuFreqFile).readAll().trimmed();
+            quint16 freq = static_cast<quint16>(freqStr.toUInt() / 1000);  // Convert kHz to MHz
+            cpuFreqFile.close();
+            if (freq > cpuMhz) {
+                cpuMhz = freq;
+            }
+        }
+    }
+
+    // Fallback to default if no frequency found
+    if (cpuMhz == 0) {
+        cpuMhz = 3500;  // Default 3.5 GHz
     }
     displayPacket[24] = static_cast<char>(cpuMhz & 0xFF);
     displayPacket[25] = static_cast<char>((cpuMhz >> 8) & 0xFF);
