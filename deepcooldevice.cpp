@@ -721,6 +721,7 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     displayPacket[46] = static_cast<char>(checksum & 0xFF);
     displayPacket[47] = static_cast<char>((checksum >> 8) & 0xFF);
 
+    qDebug() << "Display values - CPU:" << cpuTemp << "C," << cpuUsage << "% | RAM:" << memUsage << "% | MHz:" << cpuMhz;
     qDebug() << "Display packet:" << displayPacket.toHex();
 
     if (!sendData(displayPacket)) {
