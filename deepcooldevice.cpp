@@ -583,64 +583,89 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     }
 
     // Build display data packet (command 0x01, subcommand 0x22 = Machine Info)
-    // Based on captured Windows packet:
-    // AA 2E 01 22 00 00 00 00 00 04 00 09 03 00 24 05 00 07 0C 00 0A
-    // 01 00 0A C7 03 00 C7 03 00 00 00 00 00 00 00 00 00 00 00 00 00
-    // 48 49 44 43 [checksum]
+    // Protocol decoded from Windows USB capture:
+    //
+    // Byte:  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28
+    // Low:  aa 2e 01 24 00 00 01 00 00 07 00 09 03 00 24 05 00 06 0c 00 07 02 00 4f e9 03 00 e9 03
+    // High: aa 2e 01 5b 00 00 64 00 00 0b 00 06 03 00 21 05 00 03 0c 00 05 05 00 27 76 08 00 76 08
+    //             ^^ CPU temp  ^^ CPU%        ^^          ^^ GPU temp        ^^ RAM%     ^^ MHz (LE)
+    //
+    // Byte 3:  CPU Temperature (°C)
+    // Byte 6:  CPU Usage (%)
+    // Byte 9:  Unknown (varies: 07, 0b)
+    // Byte 11: Unknown (varies: 09, 06)
+    // Byte 12: Constant (03)
+    // Byte 14: GPU Temperature (°C)
+    // Byte 15: Constant (05)
+    // Byte 17: Unknown (varies: 06, 03)
+    // Byte 18: Constant (0c)
+    // Byte 20: RAM Usage (%)
+    // Byte 21: Unknown (varies: 02, 05)
+    // Byte 23: Unknown (varies: 4f, 27)
+    // Bytes 24-25: CPU MHz (little-endian)
+    // Bytes 27-28: CPU MHz repeated (little-endian)
 
     QByteArray displayPacket(48, 0);
     displayPacket[0] = static_cast<char>(0xAA);
     displayPacket[1] = 0x2E;
     displayPacket[2] = 0x01;  // Display command
-    displayPacket[3] = 0x22;  // Subcommand: Machine Info mode
 
-    // Bytes 4-8: zeros (padding/reserved)
-    displayPacket[4] = 0x00;
-    displayPacket[5] = 0x00;
-    displayPacket[6] = 0x00;
-    displayPacket[7] = 0x00;
-    displayPacket[8] = 0x00;
+    // Byte 3: CPU Temperature
+    quint8 cpuTemp = static_cast<quint8>(qBound(0.0f, data.cpuTemp, 127.0f));
+    displayPacket[3] = static_cast<char>(cpuTemp);
 
-    // Byte 9: CPU usage percentage (0-100)
+    // Bytes 4-5: zeros
+
+    // Byte 6: CPU Usage %
     quint8 cpuUsage = static_cast<quint8>(qBound(0.0f, data.cpuUsage, 100.0f));
-    displayPacket[9] = static_cast<char>(cpuUsage);
-    displayPacket[10] = 0x00;
+    displayPacket[6] = static_cast<char>(cpuUsage);
 
-    // Bytes 11-12: Unknown (from capture: 09 03) - possibly display config
+    // Bytes 7-8: zeros
+
+    // Byte 9: Unknown (use 0x07 as default from low-CPU capture)
+    displayPacket[9] = 0x07;
+
+    // Byte 10: zero
+
+    // Byte 11: Unknown (use 0x09 as default)
     displayPacket[11] = 0x09;
+
+    // Byte 12: Constant 0x03
     displayPacket[12] = 0x03;
 
-    // Byte 13: zeros
-    displayPacket[13] = 0x00;
+    // Byte 13: zero
 
-    // Bytes 14-15: CPU temperature (little-endian, integer part)
-    quint16 cpuTemp = static_cast<quint16>(qBound(0.0f, data.cpuTemp, 127.0f));
-    displayPacket[14] = static_cast<char>(cpuTemp & 0xFF);
-    displayPacket[15] = static_cast<char>((cpuTemp >> 8) & 0xFF);
+    // Byte 14: GPU Temperature
+    quint8 gpuTemp = static_cast<quint8>(qBound(0.0f, data.gpuTemp, 127.0f));
+    displayPacket[14] = static_cast<char>(gpuTemp);
 
-    // Bytes 16-17: Unknown (from capture: 00 07)
-    displayPacket[16] = 0x00;
-    displayPacket[17] = 0x07;
+    // Byte 15: Constant 0x05
+    displayPacket[15] = 0x05;
 
-    // Bytes 18-19: Memory usage percentage (little-endian)
+    // Byte 16: zero
+
+    // Byte 17: Unknown (use 0x06 as default)
+    displayPacket[17] = 0x06;
+
+    // Byte 18: Constant 0x0c
+    displayPacket[18] = 0x0c;
+
+    // Byte 19: zero
+
+    // Byte 20: RAM Usage %
     quint8 memUsage = static_cast<quint8>(qBound(0.0f, data.ramUsage, 100.0f));
-    displayPacket[18] = static_cast<char>(memUsage);
-    displayPacket[19] = 0x00;
+    displayPacket[20] = static_cast<char>(memUsage);
 
-    // Bytes 20-21: Unknown (from capture: 0A 01)
-    displayPacket[20] = 0x0A;
-    displayPacket[21] = 0x01;
+    // Byte 21: Unknown (use 0x02 as default)
+    displayPacket[21] = 0x02;
 
-    // Byte 22: zeros
-    displayPacket[22] = 0x00;
+    // Byte 22: zero
 
-    // Byte 23: Unknown (from capture: 0A)
-    displayPacket[23] = 0x0A;
+    // Byte 23: Unknown (use 0x4f as default)
+    displayPacket[23] = 0x4f;
 
     // Bytes 24-25: CPU frequency in MHz (little-endian)
-    // Get CPU frequency - use a reasonable default if not available
     quint16 cpuMhz = 3500;  // Default 3.5 GHz
-    // Try to read actual CPU frequency from /proc/cpuinfo or /sys
     QFile cpuFreqFile("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq");
     if (cpuFreqFile.open(QIODevice::ReadOnly)) {
         QString freqStr = cpuFreqFile.readLine().trimmed();
@@ -650,10 +675,9 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     displayPacket[24] = static_cast<char>(cpuMhz & 0xFF);
     displayPacket[25] = static_cast<char>((cpuMhz >> 8) & 0xFF);
 
-    // Byte 26: zeros
-    displayPacket[26] = 0x00;
+    // Byte 26: zero
 
-    // Bytes 27-28: CPU frequency again (repeated in capture)
+    // Bytes 27-28: CPU frequency repeated (little-endian)
     displayPacket[27] = static_cast<char>(cpuMhz & 0xFF);
     displayPacket[28] = static_cast<char>((cpuMhz >> 8) & 0xFF);
 
