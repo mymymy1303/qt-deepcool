@@ -10,10 +10,9 @@
  *   -l, --list           List available devices and exit
  *   -d, --device <path>  Device path (e.g., /dev/hidraw0) or index (0, 1, ...)
  *   -i, --interval <ms>  Update interval in milliseconds (default: 1000)
- *   -m, --mode <mode>    Display mode: cpu, gpu, system, custom (default: cpu)
+ *   -m, --mode <mode>    Display mode: cpu, gpu, gpu_focus (default: cpu)
  *   -f, --fahrenheit     Use Fahrenheit instead of Celsius
- *   -a, --alarm          Enable temperature alarm
- *   -v, --verbose        Enable verbose output
+ *   -V, --verbose        Enable verbose output
  *   -D, --daemon         Run as daemon (fork to background)
  *   -h, --help           Show help message
  */
@@ -458,10 +457,6 @@ int main(int argc, char *argv[])
         "Use Fahrenheit instead of Celsius");
     parser.addOption(fahrenheitOption);
 
-    QCommandLineOption alarmOption(QStringList() << "a" << "alarm",
-        "Enable temperature alarm");
-    parser.addOption(alarmOption);
-
     QCommandLineOption verboseOption(QStringList() << "V" << "verbose",
         "Enable verbose output");
     parser.addOption(verboseOption);
@@ -469,10 +464,6 @@ int main(int argc, char *argv[])
     QCommandLineOption daemonOption(QStringList() << "D" << "daemon",
         "Run as daemon (fork to background)");
     parser.addOption(daemonOption);
-
-    QCommandLineOption initOption(QStringList() << "I" << "init",
-        "Try to initialize device into Machine Info mode");
-    parser.addOption(initOption);
 
     parser.process(app);
 
@@ -567,17 +558,12 @@ int main(int argc, char *argv[])
     if (interval > 10000) interval = 10000;
 
     bool useFahrenheit = parser.isSet(fahrenheitOption);
-    bool enableAlarm = parser.isSet(alarmOption);
     DisplayMode displayMode = parseDisplayMode(parser.value(modeOption));
 
     logInfo(QString("Update interval: %1 ms").arg(interval));
     logInfo(QString("Display mode: %1").arg(parser.value(modeOption)));
     logInfo(QString("Temperature unit: %1").arg(useFahrenheit ? "Fahrenheit" : "Celsius"));
-    logInfo(QString("Alarm: %1").arg(enableAlarm ? "enabled" : "disabled"));
     logInfo("");
-
-    // NOTE: Disabled - Windows software doesn't send separate mode/alarm commands
-    // device.setAlarm(enableAlarm);
 
     // Set display mode (affects what's shown in GHz position)
     device.setDisplayMode(displayMode);

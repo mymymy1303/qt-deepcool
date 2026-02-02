@@ -11,7 +11,6 @@
 
 DeepCoolDevice::DeepCoolDevice()
     : deviceType(DEVICE_TYPE_UNKNOWN)
-    , openedViaLegacyMethod(false)
     , usbContext(nullptr)
     , deviceHandle(nullptr)
     , interfaceNumber(0)
@@ -41,7 +40,6 @@ bool DeepCoolDevice::open(const DeviceInfo &devInfo)
     deviceInfo = devInfo;
     deviceType = devInfo.type;
     deviceName = devInfo.displayName;
-    openedViaLegacyMethod = false;
 
     if (devInfo.type == DEVICE_TYPE_HID) {
         fd = ::open(devInfo.devicePath.toUtf8().constData(), O_RDWR | O_NONBLOCK);
@@ -118,17 +116,6 @@ void DeepCoolDevice::close()
     }
 
     deviceType = DEVICE_TYPE_UNKNOWN;
-    openedViaLegacyMethod = false;
-}
-
-bool DeepCoolDevice::openDevice(const DeviceInfo &deviceInfo)
-{
-    return open(deviceInfo);
-}
-
-void DeepCoolDevice::closeDevice()
-{
-    close();
 }
 
 bool DeepCoolDevice::verifyDevice()
@@ -549,24 +536,5 @@ bool DeepCoolDevice::updateDisplay(const SystemData &data)
     }
     receiveData(48);
 
-    return true;
-}
-
-bool DeepCoolDevice::setAlarm(bool enabled)
-{
-    if (!isOpen()) {
-        return false;
-    }
-
-    QByteArray payload;
-    payload.append(enabled ? 0x01 : 0x00);
-    QByteArray packet = buildPacket(CMD_SET_ALARM, payload);
-
-    return sendData(packet);
-}
-
-bool DeepCoolDevice::setUpdateInterval(int milliseconds)
-{
-    Q_UNUSED(milliseconds);
     return true;
 }

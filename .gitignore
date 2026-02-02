@@ -1,6 +1,6 @@
-build
-build/*
-build/Desktop_LLDB_Qt_6_9_1-Debug/*
+build/
+CMakeLists.txt.user
+*.pcapng
 
 devicedetector.cpp
 devicedetector.h

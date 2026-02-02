@@ -224,5 +224,5 @@ while (running) {
 
 ## References
 
-- USB captures: `wireshare_capture.pcapng`, `startup_capture.pcapng`
 - Implementation: `deepcooldevice.cpp`
+- Protocol reverse-engineered from USB captures of Windows DeepCreative software

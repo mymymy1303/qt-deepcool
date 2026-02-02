@@ -44,24 +44,17 @@ public:
     QString getDeviceName() const override { return deviceName; }
     QString getDeviceInfo() const override;
 
-    // Legacy method for backward compatibility
-    bool openDevice(const DeviceInfo &deviceInfo);
-    void closeDevice();
-
-    // Device verification
-    bool verifyDevice();
-
     // High-level DeepCool-specific commands
     bool sendStatusRequest();  // Handshake/init
     bool initMachineInfoMode();  // Try to switch device to Machine Info mode
     bool setDisplayMode(DisplayMode mode);
     bool updateDisplay(const SystemData &data);
-    bool setAlarm(bool enabled);
-    bool setUpdateInterval(int milliseconds);
+
+    // Device verification
+    bool verifyDevice();
 
 private:
     DeviceType deviceType;
-    bool openedViaLegacyMethod;  // Track if opened via old openDevice() method
 
     // For USB vendor-specific devices
     libusb_context *usbContext;
@@ -84,8 +77,6 @@ private:
 
     // Command bytes (reverse-engineered from USB capture)
     static const quint8 CMD_UPDATE_DISPLAY = 0x01;  // Send display data
-    static const quint8 CMD_SET_MODE = 0x02;        // Set display mode (unconfirmed)
-    static const quint8 CMD_SET_ALARM = 0x03;       // Set alarm (unconfirmed)
     static const quint8 CMD_STATUS_REQUEST = 0x10;  // Status/handshake request
 
     static const int PACKET_SIZE = 48;  // MYSTIQUE uses 48-byte packets

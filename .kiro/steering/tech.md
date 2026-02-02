@@ -2,15 +2,14 @@
 
 ## Language & Standard
 - C++17
-- Qt 6 framework (Core for CLI, Widgets for GUI)
+- Qt 6 Core (CLI only)
 
 ## Build System
 - CMake 3.16+
-- Qt MOC/UIC/RCC auto-generation enabled
+- Qt MOC auto-generation enabled
 
 ## Dependencies
-- Qt6::Core (required)
-- Qt6::Widgets (GUI only)
+- Qt6::Core
 - libusb-1.0 (vendor-specific USB device access)
 - libudev (Linux device detection)
 
@@ -20,29 +19,17 @@
 ## Common Commands
 
 ```bash
-# Configure (CLI only - default)
-cmake -B build -S .
-
-# Configure with GUI
-cmake -B build -S . -DBUILD_GUI=ON
-
 # Build
+cmake -B build -S .
 cmake --build build
 
-# Run CLI (requires root or udev rules)
+# Run
 sudo ./build/bin/deepcool-cli --list
-sudo ./build/bin/deepcool-cli --mode cpu --interval 1000
-
-# Run GUI
-sudo ./build/bin/deepcool-gui
+sudo ./build/bin/deepcool-cli --mode cpu --interval 1000 -V
 
 # Clean rebuild
 rm -rf build && cmake -B build -S . && cmake --build build
 ```
-
-## Build Options
-- `BUILD_CLI=ON` (default) - Headless CLI application
-- `BUILD_GUI=OFF` (default) - Qt Widgets GUI application
 
 ## Device Access
 Requires either:

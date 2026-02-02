@@ -1,162 +1,72 @@
-# DeepCool Qt - Build Instructions
+# DeepCool CLI - Build Instructions
 
 ## Prerequisites
 
 ### Ubuntu/Debian
 ```bash
-sudo apt update
-sudo apt install build-essential cmake qt6-base-dev libudev-dev
+sudo apt install build-essential cmake qt6-base-dev libusb-1.0-0-dev libudev-dev
 ```
 
 ### Arch Linux
 ```bash
-sudo pacman -S base-devel cmake qt6-base
+sudo pacman -S base-devel cmake qt6-base libusb
 ```
 
 ### Fedora
 ```bash
-sudo dnf install gcc-c++ cmake qt6-qtbase-devel systemd-devel
+sudo dnf install gcc-c++ cmake qt6-qtbase-devel libusb1-devel systemd-devel
 ```
 
-## Project Structure
+## Build
 
-```
-deepcool-qt/
-├── CMakeLists.txt
-├── main.cpp
-├── mainwindow.h
-├── mainwindow.cpp
-├── deepcooldevice.h
-└── deepcooldevice.cpp
-```
-
-## Building
-
-### 1. Create build directory
 ```bash
-mkdir build
-cd build
-```
-
-### 2. Configure with CMake
-```bash
-cmake ..
-```
-
-### 3. Build the project
-```bash
-cmake --build .
-# or simply
-make
-```
-
-### 4. Run the application
-```bash
-# You need root privileges to access HID devices
-sudo ./bin/deepcool-qt
-```
-
-## Alternative: Out-of-source build
-```bash
-# From project root
 cmake -B build -S .
 cmake --build build
-sudo ./build/bin/deepcool-qt
 ```
 
-## Installation (Optional)
-```bash
-cd build
-sudo make install
-# Now you can run from anywhere:
-sudo deepcool-qt
-```
-
-## Setting Up udev Rules (Recommended)
-
-To run without sudo, create a udev rule:
+## Run
 
 ```bash
-sudo nano /etc/udev/rules.d/99-deepcool.rules
+# List devices
+sudo ./build/bin/deepcool-cli --list
+
+# Run with CPU mode (default)
+sudo ./build/bin/deepcool-cli --mode cpu --interval 1000
+
+# Run with verbose output
+sudo ./build/bin/deepcool-cli --mode cpu --interval 1000 -V
 ```
 
-Add this content (adjust vendor/product IDs for your device):
-```
-# DeepCool HID raw devices
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", MODE="0666"
+## Install (Optional)
 
-# Add more product IDs if needed
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", ATTRS{idProduct}=="XXXX", MODE="0666"
-```
-
-Then reload udev rules:
 ```bash
+sudo cmake --install build
+```
+
+## udev Rules (Run Without sudo)
+
+```bash
+sudo cp 99-deepcool.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
 
-Now you can run without sudo:
+Then add your user to the `plugdev` group:
 ```bash
-./bin/deepcool-qt
+sudo usermod -aG plugdev $USER
+# Log out and back in
 ```
 
-## Troubleshooting
+## Systemd Service
 
-### Qt6 not found
-If CMake can't find Qt6, you may need to specify the path:
 ```bash
-cmake -DCMAKE_PREFIX_PATH=/usr/lib/qt6 ..
+sudo cp deepcool-cli.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now deepcool-cli
 ```
 
-### Permission denied when accessing /dev/hidraw*
-- Make sure you're running with sudo, OR
-- Set up udev rules as described above, OR
-- Add your user to the appropriate group:
+Check status:
 ```bash
-sudo usermod -a -G plugdev $USER
-# Log out and log back in
+sudo systemctl status deepcool-cli
+journalctl -u deepcool-cli -f
 ```
-
-### Device not detected
-1. Check if device is connected:
-```bash
-lsusb
-ls -la /dev/hidraw*
-```
-
-2. Check device permissions:
-```bash
-cat /sys/class/hidraw/hidraw*/device/uevent
-```
-
-3. Verify vendor/product IDs in the code match your device
-
-## Development Tips
-
-### Enable debug output
-The application uses qDebug() for logging. Run with:
-```bash
-QT_LOGGING_RULES="*.debug=true" sudo ./bin/deepcool-qt
-```
-
-### Clean build
-```bash
-rm -rf build
-mkdir build
-cd build
-cmake ..
-make
-```
-
-### Quick rebuild after code changes
-```bash
-cd build
-make
-```
-
-## Next Steps
-
-1. **Find your MYSTIQUE 360 IDs**: Run `lsusb` and update the IDs in `deepcooldevice.h`
-2. **Reverse engineer the protocol**: Study the Rust implementation at https://github.com/Nortank12/deepcool-digital-linux
-3. **Test carefully**: Start with device detection, then add features gradually
-4. **Report issues**: If you discover the protocol, consider contributing back to the original project!
