@@ -328,31 +328,9 @@ bool DeepCoolDevice::initMachineInfoMode()
         return false;
     }
 
-    qDebug() << "Sending 0x0A init command...";
+    // Check current status first
+    qDebug() << "Checking initial status...";
 
-    // Send 0x0A command
-    QByteArray packet(48, 0);
-    packet[0] = static_cast<char>(0xAA);
-    packet[1] = 0x2E;
-    packet[2] = 0x0A;
-    packet[42] = 0x48;
-    packet[43] = 0x49;
-    packet[44] = 0x44;
-    packet[45] = 0x43;
-
-    quint16 checksum = 0;
-    for (int j = 0; j < 46; ++j) {
-        checksum += static_cast<quint8>(packet[j]);
-    }
-    packet[46] = static_cast<char>(checksum & 0xFF);
-    packet[47] = static_cast<char>((checksum >> 8) & 0xFF);
-
-    sendData(packet);
-    QByteArray resp = receiveData(64);
-    qDebug() << "  0x0A response:" << resp.left(10).toHex();
-    usleep(100000);
-
-    // Check status
     QByteArray statusPacket(48, 0);
     statusPacket[0] = static_cast<char>(0xAA);
     statusPacket[1] = 0x2E;
@@ -362,7 +340,7 @@ bool DeepCoolDevice::initMachineInfoMode()
     statusPacket[44] = 0x44;
     statusPacket[45] = 0x43;
 
-    checksum = 0;
+    quint16 checksum = 0;
     for (int j = 0; j < 46; ++j) {
         checksum += static_cast<quint8>(statusPacket[j]);
     }
@@ -371,11 +349,87 @@ bool DeepCoolDevice::initMachineInfoMode()
 
     sendData(statusPacket);
     QByteArray statusResp = receiveData(64);
-    qDebug() << "  Status:" << statusResp.left(10).toHex();
+    qDebug() << "  Initial status:" << statusResp.left(12).toHex();
 
-    if (statusResp.size() >= 6) {
-        quint8 modeIndicator = static_cast<quint8>(statusResp[5]);
-        qDebug() << "  Mode indicator: 0x" << QString::number(modeIndicator, 16);
+    // Try HID SET_REPORT control transfer
+    qDebug() << "\nTrying USB control transfer (HID SET_REPORT)...";
+
+    if (deviceHandle) {
+        QByteArray ctrlPacket(48, 0);
+        ctrlPacket[0] = static_cast<char>(0xAA);
+        ctrlPacket[1] = 0x2E;
+        ctrlPacket[2] = 0x0A;
+        ctrlPacket[42] = 0x48;
+        ctrlPacket[43] = 0x49;
+        ctrlPacket[44] = 0x44;
+        ctrlPacket[45] = 0x43;
+
+        checksum = 0;
+        for (int j = 0; j < 46; ++j) {
+            checksum += static_cast<quint8>(ctrlPacket[j]);
+        }
+        ctrlPacket[46] = static_cast<char>(checksum & 0xFF);
+        ctrlPacket[47] = static_cast<char>((checksum >> 8) & 0xFF);
+
+        // Try SET_REPORT
+        int ret = libusb_control_transfer(
+            deviceHandle,
+            0x21,  // Host to Device, Class, Interface
+            0x09,  // SET_REPORT
+            0x0200,  // Output report, ID 0
+            0,
+            (unsigned char*)ctrlPacket.data(),
+            48,
+            1000
+        );
+        qDebug() << "  SET_REPORT result:" << ret;
+
+        // Try SET_FEATURE
+        ret = libusb_control_transfer(
+            deviceHandle,
+            0x21,
+            0x09,
+            0x0300,  // Feature report
+            0,
+            (unsigned char*)ctrlPacket.data(),
+            48,
+            1000
+        );
+        qDebug() << "  SET_FEATURE result:" << ret;
+    }
+
+    // Try interface 1
+    qDebug() << "\nTrying interface 1...";
+    if (deviceHandle) {
+        if (libusb_kernel_driver_active(deviceHandle, 1) == 1) {
+            libusb_detach_kernel_driver(deviceHandle, 1);
+        }
+        int ret = libusb_claim_interface(deviceHandle, 1);
+        qDebug() << "  Claim interface 1:" << ret;
+
+        if (ret == 0) {
+            QByteArray packet(48, 0);
+            packet[0] = static_cast<char>(0xAA);
+            packet[1] = 0x2E;
+            packet[2] = 0x0A;
+            packet[42] = 0x48;
+            packet[43] = 0x49;
+            packet[44] = 0x44;
+            packet[45] = 0x43;
+
+            checksum = 0;
+            for (int j = 0; j < 46; ++j) {
+                checksum += static_cast<quint8>(packet[j]);
+            }
+            packet[46] = static_cast<char>(checksum & 0xFF);
+            packet[47] = static_cast<char>((checksum >> 8) & 0xFF);
+
+            int transferred = 0;
+            ret = libusb_bulk_transfer(deviceHandle, 0x03, (unsigned char*)packet.data(), 48, &transferred, 1000);
+            qDebug() << "  Bulk 0x03:" << ret << "bytes:" << transferred;
+
+            libusb_release_interface(deviceHandle, 1);
+        }
     }
 
     return true;
