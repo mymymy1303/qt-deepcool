@@ -553,11 +553,12 @@ int main(int argc, char *argv[])
 
     logInfo("Device opened successfully.");
 
-    // Try to initialize Machine Info mode if requested
-    if (parser.isSet(initOption)) {
-        logInfo("Attempting to initialize Machine Info mode...");
-        device.initMachineInfoMode();
-        logInfo("Init sequence complete. Check if display changed.");
+    // Always initialize the device to Machine Info mode
+    logInfo("Initializing device...");
+    if (device.initMachineInfoMode()) {
+        logInfo("Device initialized successfully.");
+    } else {
+        logInfo("Warning: Device init returned false, display may not update.");
     }
 
     // Parse options
