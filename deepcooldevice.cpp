@@ -328,90 +328,86 @@ bool DeepCoolDevice::initMachineInfoMode()
         return false;
     }
 
-    // Device has 4 endpoints: 0x01 OUT, 0x81 IN, 0x02 OUT, 0x82 IN
-    // We use 0x02/0x82. Let's try 0x01/0x81 for init!
+    qDebug() << "Sending initialization sequence (captured from Windows)...";
 
-    qDebug() << "Trying endpoint 0x01/0x81 for init...";
+    // Init sequence uses endpoint 0x01, not 0x02!
+    auto sendInitPacket = [this](quint8 cmd, const QByteArray& payload) -> QByteArray {
+        QByteArray packet(48, 0);
+        packet[0] = static_cast<char>(0xAA);
+        packet[1] = 0x2E;
+        packet[2] = cmd;
 
-    QByteArray packet(48, 0);
-    packet[0] = static_cast<char>(0xAA);
-    packet[1] = 0x2E;
-    packet[2] = 0x0A;
-    packet[42] = 0x48;
-    packet[43] = 0x49;
-    packet[44] = 0x44;
-    packet[45] = 0x43;
-
-    quint16 checksum = 0;
-    for (int j = 0; j < 46; ++j) {
-        checksum += static_cast<quint8>(packet[j]);
-    }
-    packet[46] = static_cast<char>(checksum & 0xFF);
-    packet[47] = static_cast<char>((checksum >> 8) & 0xFF);
-
-    if (deviceHandle) {
-        int transferred = 0;
-
-        // Send on endpoint 0x01
-        int ret = libusb_bulk_transfer(deviceHandle, 0x01, (unsigned char*)packet.data(), 48, &transferred, 1000);
-        qDebug() << "  EP 0x01 send:" << ret << "bytes:" << transferred;
-
-        if (ret >= 0) {
-            QByteArray response(64, 0);
-            ret = libusb_bulk_transfer(deviceHandle, 0x81, (unsigned char*)response.data(), 64, &transferred, 1000);
-            qDebug() << "  EP 0x81 recv:" << ret << "bytes:" << transferred;
-            if (transferred > 0) {
-                qDebug() << "  Response:" << response.left(16).toHex();
-            }
+        for (int i = 0; i < payload.size() && i < 39; i++) {
+            packet[3 + i] = payload[i];
         }
 
-        usleep(100000);
+        packet[42] = 0x48;
+        packet[43] = 0x49;
+        packet[44] = 0x44;
+        packet[45] = 0x43;
 
-        // Try display data on EP 0x01
-        qDebug() << "\nTrying display data on EP 0x01...";
-        QByteArray displayPacket(48, 0);
-        displayPacket[0] = static_cast<char>(0xAA);
-        displayPacket[1] = 0x2E;
-        displayPacket[2] = 0x01;
-        displayPacket[3] = 0x28;
-        displayPacket[6] = 0x05;
-        displayPacket[9] = 0x02;
-        displayPacket[11] = 0x09;
-        displayPacket[12] = 0x03;
-        displayPacket[14] = 0x1E;
-        displayPacket[15] = 0x05;
-        displayPacket[17] = 0x06;
-        displayPacket[18] = 0x0C;
-        displayPacket[20] = 0x07;
-        displayPacket[21] = 0x03;
-        displayPacket[23] = 0x32;
-        displayPacket[24] = 0xAC;
-        displayPacket[25] = 0x0D;
-        displayPacket[27] = 0xAC;
-        displayPacket[28] = 0x0D;
-        displayPacket[42] = 0x48;
-        displayPacket[43] = 0x49;
-        displayPacket[44] = 0x44;
-        displayPacket[45] = 0x43;
-
-        checksum = 0;
+        quint16 checksum = 0;
         for (int j = 0; j < 46; ++j) {
-            checksum += static_cast<quint8>(displayPacket[j]);
+            checksum += static_cast<quint8>(packet[j]);
         }
-        displayPacket[46] = static_cast<char>(checksum & 0xFF);
-        displayPacket[47] = static_cast<char>((checksum >> 8) & 0xFF);
+        packet[46] = static_cast<char>(checksum & 0xFF);
+        packet[47] = static_cast<char>((checksum >> 8) & 0xFF);
 
-        ret = libusb_bulk_transfer(deviceHandle, 0x01, (unsigned char*)displayPacket.data(), 48, &transferred, 1000);
-        qDebug() << "  EP 0x01 display:" << ret;
+        int transferred = 0;
+        libusb_bulk_transfer(deviceHandle, 0x01, (unsigned char*)packet.data(), 48, &transferred, 1000);
 
-        if (ret >= 0) {
-            QByteArray response(64, 0);
-            ret = libusb_bulk_transfer(deviceHandle, 0x81, (unsigned char*)response.data(), 64, &transferred, 1000);
-            qDebug() << "  EP 0x81 resp:" << ret << "bytes:" << transferred;
-        }
+        QByteArray response(64, 0);
+        libusb_bulk_transfer(deviceHandle, 0x81, (unsigned char*)response.data(), 64, &transferred, 1000);
+
+        return response;
+    };
+
+    // 1. Command 0x12 - Device info
+    qDebug() << "  Cmd 0x12...";
+    QByteArray resp = sendInitPacket(0x12, QByteArray());
+    qDebug() << "    Resp:" << resp.left(20).toHex();
+    usleep(10000);
+
+    // 2. Command 0x02 - Config
+    qDebug() << "  Cmd 0x02...";
+    sendInitPacket(0x02, QByteArray::fromHex("0100030124"));
+    usleep(10000);
+
+    // 3-9. Setup commands
+    qDebug() << "  Cmd 0x03-0x06...";
+    sendInitPacket(0x03, QByteArray::fromHex("01"));
+    sendInitPacket(0x04, QByteArray::fromHex("05000001"));
+    sendInitPacket(0x07, QByteArray::fromHex("0002"));
+    sendInitPacket(0x08, QByteArray::fromHex("0004"));
+    sendInitPacket(0x05, QByteArray::fromHex("0101"));
+    sendInitPacket(0x0B, QByteArray());
+    sendInitPacket(0x06, QByteArray::fromHex("01"));
+    usleep(10000);
+
+    // 10-12. Commands 0x15-0x17
+    qDebug() << "  Cmd 0x15-0x17...";
+    sendInitPacket(0x15, QByteArray::fromHex("2d2d"));
+    sendInitPacket(0x16, QByteArray::fromHex("2d2d"));
+    sendInitPacket(0x17, QByteArray::fromHex("2d2d"));
+    usleep(10000);
+
+    // 13. Command 0x0A - Mode switch!
+    qDebug() << "  Cmd 0x0A (mode)...";
+    resp = sendInitPacket(0x0A, QByteArray::fromHex("ea07020202272100"));
+    qDebug() << "    Resp:" << resp.left(10).toHex();
+    usleep(100000);
+
+    // 14. Status check
+    qDebug() << "  Cmd 0x10 (status)...";
+    resp = sendInitPacket(0x10, QByteArray());
+    qDebug() << "    Status:" << resp.left(10).toHex();
+
+    if (resp.size() >= 6 && static_cast<quint8>(resp[5]) == 0xFF) {
+        qDebug() << "  SUCCESS!";
+        return true;
     }
 
-    return true;
+    return false;
 }
 
 bool DeepCoolDevice::setDisplayMode(DisplayMode mode)
