@@ -328,24 +328,35 @@ bool DeepCoolDevice::initMachineInfoMode()
         return false;
     }
 
-    // Scan for valid commands by checking if device echoes the command byte
-    quint8 commandsToTry[] = {
-        0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
-        0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
-        0x21, 0x22, 0x23, 0x24, 0x25,
-        0x40, 0x41, 0x42, 0x50, 0x51, 0x52, 0x60, 0x70, 0x80, 0x90, 0xA0, 0xB0, 0xC0,
-        0xF0, 0xFE, 0xFF
+    // Command 0x0A was found to be valid - try it with different payloads
+    qDebug() << "Testing command 0x0A with various payloads...";
+
+    quint8 payloads[][8] = {
+        {0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+        {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+        {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+        {0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+        {0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+        {0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+        {0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00},
+        {0x00, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+        {0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+        {0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+        {0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00},
     };
 
-    int numCommands = sizeof(commandsToTry) / sizeof(commandsToTry[0]);
+    int numPayloads = sizeof(payloads) / sizeof(payloads[0]);
 
-    qDebug() << "Scanning for valid commands...";
-
-    for (int i = 0; i < numCommands; i++) {
+    for (int i = 0; i < numPayloads; i++) {
         QByteArray packet(48, 0);
         packet[0] = static_cast<char>(0xAA);
         packet[1] = 0x2E;
-        packet[2] = commandsToTry[i];
+        packet[2] = 0x0A;
+
+        for (int j = 0; j < 8; j++) {
+            packet[3 + j] = payloads[i][j];
+        }
+
         packet[42] = 0x48;
         packet[43] = 0x49;
         packet[44] = 0x44;
@@ -358,45 +369,24 @@ bool DeepCoolDevice::initMachineInfoMode()
         packet[46] = static_cast<char>(checksum & 0xFF);
         packet[47] = static_cast<char>((checksum >> 8) & 0xFF);
 
+        qDebug() << "  0x0A payload:" << QByteArray((char*)payloads[i], 4).toHex();
+
         if (sendData(packet)) {
             QByteArray response = receiveData(64);
-
-            if (response.size() >= 3) {
-                quint8 respCmd = static_cast<quint8>(response[2]);
-                if (respCmd == commandsToTry[i] && respCmd != 0x00) {
-                    qDebug() << "  VALID cmd: 0x" << QString::number(commandsToTry[i], 16)
-                             << " Response:" << response.left(16).toHex();
-                }
-            }
+            qDebug() << "    Resp:" << response.left(10).toHex();
         }
-        usleep(20000);
+        usleep(200000);
     }
 
-    // Try display packets with different mode flags
-    qDebug() << "\nTrying display packets with mode flags...";
+    // Send 0x0A then check status
+    qDebug() << "\nSending 0x0A modes then checking status...";
 
-    for (int modeFlag = 0; modeFlag <= 3; modeFlag++) {
+    for (int mode = 0; mode <= 5; mode++) {
         QByteArray packet(48, 0);
         packet[0] = static_cast<char>(0xAA);
         packet[1] = 0x2E;
-        packet[2] = 0x01;
-        packet[3] = 0x22;
-        packet[4] = modeFlag;
-        packet[6] = 0x01;
-        packet[9] = 0x04;
-        packet[11] = 0x09;
-        packet[12] = 0x03;
-        packet[14] = 0x24;
-        packet[15] = 0x05;
-        packet[17] = 0x06;
-        packet[18] = 0x0C;
-        packet[20] = 0x07;
-        packet[21] = 0x05;
-        packet[23] = 0x20;
-        packet[24] = 0x50;
-        packet[25] = 0x14;
-        packet[27] = 0x50;
-        packet[28] = 0x14;
+        packet[2] = 0x0A;
+        packet[3] = mode;
         packet[42] = 0x48;
         packet[43] = 0x49;
         packet[44] = 0x44;
@@ -409,16 +399,36 @@ bool DeepCoolDevice::initMachineInfoMode()
         packet[46] = static_cast<char>(checksum & 0xFF);
         packet[47] = static_cast<char>((checksum >> 8) & 0xFF);
 
-        qDebug() << "  Display with byte4=" << modeFlag;
-
-        if (sendData(packet)) {
-            QByteArray response = receiveData(64);
-            qDebug() << "    Response:" << response.left(16).toHex();
-        }
+        qDebug() << "  0x0A mode=" << mode;
+        sendData(packet);
+        receiveData(64);
         usleep(100000);
+
+        // Check status
+        QByteArray statusPacket(48, 0);
+        statusPacket[0] = static_cast<char>(0xAA);
+        statusPacket[1] = 0x2E;
+        statusPacket[2] = 0x10;
+        statusPacket[42] = 0x48;
+        statusPacket[43] = 0x49;
+        statusPacket[44] = 0x44;
+        statusPacket[45] = 0x43;
+
+        checksum = 0;
+        for (int j = 0; j < 46; ++j) {
+            checksum += static_cast<quint8>(statusPacket[j]);
+        }
+        statusPacket[46] = static_cast<char>(checksum & 0xFF);
+        statusPacket[47] = static_cast<char>((checksum >> 8) & 0xFF);
+
+        sendData(statusPacket);
+        QByteArray statusResp = receiveData(64);
+        qDebug() << "    Status:" << statusResp.left(10).toHex();
+
+        usleep(200000);
     }
 
-    qDebug() << "\nInit scan complete";
+    qDebug() << "\nInit complete - check display";
     return false;
 }
 
