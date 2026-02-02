@@ -470,6 +470,10 @@ int main(int argc, char *argv[])
         "Run as daemon (fork to background)");
     parser.addOption(daemonOption);
 
+    QCommandLineOption initOption(QStringList() << "I" << "init",
+        "Try to initialize device into Machine Info mode");
+    parser.addOption(initOption);
+
     parser.process(app);
 
     g_verbose = parser.isSet(verboseOption);
@@ -548,6 +552,13 @@ int main(int argc, char *argv[])
     }
 
     logInfo("Device opened successfully.");
+
+    // Try to initialize Machine Info mode if requested
+    if (parser.isSet(initOption)) {
+        logInfo("Attempting to initialize Machine Info mode...");
+        device.initMachineInfoMode();
+        logInfo("Init sequence complete. Check if display changed.");
+    }
 
     // Parse options
     int interval = parser.value(intervalOption).toInt();

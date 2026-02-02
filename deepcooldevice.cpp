@@ -322,6 +322,99 @@ bool DeepCoolDevice::sendStatusRequest()
     return true;
 }
 
+bool DeepCoolDevice::initMachineInfoMode()
+{
+    if (!isOpen()) {
+        return false;
+    }
+
+    // Try various potential mode-switch commands
+    // Based on protocol analysis: AA 2E XX where XX is command byte
+    // Known: 0x01 = display data, 0x10 = status request
+    // Trying: 0x02, 0x03, 0x20, 0x11, 0x12 as potential mode-set commands
+
+    struct ModeCommand {
+        quint8 cmd;
+        quint8 payload[4];
+        int payloadLen;
+        const char* desc;
+    };
+
+    ModeCommand attempts[] = {
+        // Command 0x02 with mode=0xFF (Machine Info indicator from response)
+        {0x02, {0xFF, 0x00, 0x00, 0x00}, 1, "cmd=0x02, mode=0xFF"},
+        {0x02, {0x01, 0x00, 0x00, 0x00}, 1, "cmd=0x02, mode=0x01"},
+        {0x02, {0x00, 0x00, 0x00, 0x00}, 1, "cmd=0x02, mode=0x00"},
+
+        // Command 0x03 (potential mode set)
+        {0x03, {0xFF, 0x00, 0x00, 0x00}, 1, "cmd=0x03, mode=0xFF"},
+        {0x03, {0x01, 0x00, 0x00, 0x00}, 1, "cmd=0x03, mode=0x01"},
+
+        // Command 0x20 (0x10 + 0x10, potential extended status/init)
+        {0x20, {0x00, 0x00, 0x00, 0x00}, 0, "cmd=0x20 (init?)"},
+        {0x20, {0xFF, 0x00, 0x00, 0x00}, 1, "cmd=0x20, mode=0xFF"},
+
+        // Command 0x11 (0x10 + 1, potential mode request)
+        {0x11, {0xFF, 0x00, 0x00, 0x00}, 1, "cmd=0x11, mode=0xFF"},
+        {0x11, {0x01, 0x00, 0x00, 0x00}, 1, "cmd=0x11, mode=0x01"},
+
+        // Command 0x12 (potential set mode)
+        {0x12, {0xFF, 0x00, 0x00, 0x00}, 1, "cmd=0x12, mode=0xFF"},
+
+        // Command 0x30 (potential init)
+        {0x30, {0x00, 0x00, 0x00, 0x00}, 0, "cmd=0x30 (init?)"},
+
+        // Command 0x04 (next after known commands)
+        {0x04, {0xFF, 0x00, 0x00, 0x00}, 1, "cmd=0x04, mode=0xFF"},
+        {0x04, {0x01, 0x00, 0x00, 0x00}, 1, "cmd=0x04, mode=0x01"},
+    };
+
+    int numAttempts = sizeof(attempts) / sizeof(attempts[0]);
+
+    for (int i = 0; i < numAttempts; i++) {
+        QByteArray packet(48, 0);
+        packet[0] = static_cast<char>(0xAA);
+        packet[1] = 0x2E;
+        packet[2] = attempts[i].cmd;
+
+        for (int j = 0; j < attempts[i].payloadLen; j++) {
+            packet[3 + j] = attempts[i].payload[j];
+        }
+
+        packet[42] = 0x48;
+        packet[43] = 0x49;
+        packet[44] = 0x44;
+        packet[45] = 0x43;
+
+        quint16 checksum = 0;
+        for (int j = 0; j < 46; ++j) {
+            checksum += static_cast<quint8>(packet[j]);
+        }
+        packet[46] = static_cast<char>(checksum & 0xFF);
+        packet[47] = static_cast<char>((checksum >> 8) & 0xFF);
+
+        qDebug() << "Trying init:" << attempts[i].desc;
+        qDebug() << "  Packet:" << packet.toHex();
+
+        if (sendData(packet)) {
+            QByteArray response = receiveData(64);
+            qDebug() << "  Response:" << response.toHex();
+
+            // Check if response indicates Machine Info mode (byte 5 = 0xFF)
+            if (response.size() >= 6 && static_cast<quint8>(response[5]) == 0xFF) {
+                qDebug() << "  SUCCESS! Device now in Machine Info mode";
+                return true;
+            }
+        }
+
+        // Small delay between attempts
+        usleep(50000);  // 50ms
+    }
+
+    qDebug() << "All init attempts completed - check if display changed";
+    return false;
+}
+
 bool DeepCoolDevice::setDisplayMode(DisplayMode mode)
 {
     currentMode = mode;

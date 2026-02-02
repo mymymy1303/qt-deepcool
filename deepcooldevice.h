@@ -53,6 +53,7 @@ public:
 
     // High-level DeepCool-specific commands
     bool sendStatusRequest();  // Handshake/init
+    bool initMachineInfoMode();  // Try to switch device to Machine Info mode
     bool setDisplayMode(DisplayMode mode);
     bool updateDisplay(const SystemData &data);
     bool setAlarm(bool enabled);
