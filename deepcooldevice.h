@@ -15,6 +15,13 @@ enum DisplayMode {
     MODE_CUSTOM = 3,
     MODE_GPU_FOCUS = 4      // GPU temp main (with LED), CPU temp bottom
 };
+enum ScreenRotation {
+    ROTATION_0   = 0,   // 0° (no rotation)
+    ROTATION_90  = 1,   // 90° clockwise
+    ROTATION_180 = 2,   // 180°
+    ROTATION_270 = 3    // 270° clockwise
+};
+
 
 struct SystemData {
     float cpuTemp;
@@ -49,6 +56,8 @@ public:
     bool initMachineInfoMode();  // Try to switch device to Machine Info mode
     bool setDisplayMode(DisplayMode mode);
     bool updateDisplay(const SystemData &data);
+    bool setRotation(ScreenRotation rotation);
+    ScreenRotation getRotation() const { return currentRotation; }
 
     // Device verification
     bool verifyDevice();
@@ -70,6 +79,7 @@ private:
     QString devicePath;
     QString deviceName;
     DisplayMode currentMode;
+    ScreenRotation currentRotation;
 
     // Protocol helpers
     QByteArray buildPacket(quint8 command, const QByteArray &payload);
@@ -77,7 +87,8 @@ private:
 
     // Command bytes (reverse-engineered from USB capture)
     static const quint8 CMD_UPDATE_DISPLAY = 0x01;  // Send display data
-    static const quint8 CMD_STATUS_REQUEST = 0x10;  // Status/handshake request
+    static const quint8 CMD_CONFIG = 0x02;           // Configuration (rotation, etc.)
+    static const quint8 CMD_STATUS_REQUEST = 0x10;   // Status/handshake request
 
     static const int PACKET_SIZE = 48;  // MYSTIQUE uses 48-byte packets
 };
