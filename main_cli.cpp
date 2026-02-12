@@ -465,6 +465,10 @@ int main(int argc, char *argv[])
         "Run as daemon (fork to background)");
     parser.addOption(daemonOption);
 
+    QCommandLineOption rotateOption(QStringList() << "r" << "rotate",
+        "Screen rotation: 0, 90, 180, 270 (degrees)", "degrees", "0");
+    parser.addOption(rotateOption);
+
     parser.process(app);
 
     g_verbose = parser.isSet(verboseOption);
@@ -544,14 +548,6 @@ int main(int argc, char *argv[])
 
     logInfo("Device opened successfully.");
 
-    // Always initialize the device to Machine Info mode
-    logInfo("Initializing device...");
-    if (device.initMachineInfoMode()) {
-        logInfo("Device initialized successfully.");
-    } else {
-        logInfo("Warning: Device init returned false, display may not update.");
-    }
-
     // Parse options
     int interval = parser.value(intervalOption).toInt();
     if (interval < 100) interval = 100;
@@ -560,9 +556,42 @@ int main(int argc, char *argv[])
     bool useFahrenheit = parser.isSet(fahrenheitOption);
     DisplayMode displayMode = parseDisplayMode(parser.value(modeOption));
 
+    // Parse rotation
+    int rotateDeg = parser.value(rotateOption).toInt();
+    ScreenRotation rotation = ROTATION_0;
+    switch (rotateDeg) {
+        case 90:  rotation = ROTATION_90;  break;
+        case 180: rotation = ROTATION_180; break;
+        case 270: rotation = ROTATION_270; break;
+        default:  rotation = ROTATION_0;   break;
+    }
+
+    // Set rotation before init so it's applied during initialization
+    device.setDisplayMode(displayMode);
+
+    // Always initialize the device to Machine Info mode
+    logInfo("Initializing device...");
+    if (device.initMachineInfoMode()) {
+        logInfo("Device initialized successfully.");
+    } else {
+        logInfo("Warning: Device init returned false, display may not update.");
+    }
+
+    // Apply rotation if specified
+    if (rotateDeg != 0) {
+        if (device.setRotation(rotation)) {
+            logInfo(QString("Screen rotation set to %1°").arg(rotateDeg));
+        } else {
+            logInfo("Warning: Failed to set screen rotation.");
+        }
+    }
+
     logInfo(QString("Update interval: %1 ms").arg(interval));
     logInfo(QString("Display mode: %1").arg(parser.value(modeOption)));
     logInfo(QString("Temperature unit: %1").arg(useFahrenheit ? "Fahrenheit" : "Celsius"));
+    if (rotateDeg != 0) {
+        logInfo(QString("Rotation: %1°").arg(rotateDeg));
+    }
     logInfo("");
 
     // Set display mode (affects what's shown in GHz position)

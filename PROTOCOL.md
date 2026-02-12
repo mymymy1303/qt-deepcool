@@ -200,7 +200,7 @@ while (running) {
 | Command | Endpoint | Description |
 |---------|----------|-------------|
 | 0x01 | 0x02 | Display data update |
-| 0x02 | 0x01 | Configuration |
+| 0x02 | 0x01 | Configuration (rotation + settings) |
 | 0x03 | 0x01 | Setup |
 | 0x04 | 0x01 | Setup |
 | 0x05 | 0x01 | Setup |
@@ -214,6 +214,32 @@ while (running) {
 | 0x15 | 0x01 | Display label |
 | 0x16 | 0x01 | Display label |
 | 0x17 | 0x01 | Display label |
+
+## Screen Rotation Command (0x02)
+
+Sent on **endpoint 0x01** to rotate the display. Uses the same command byte as the
+initial configuration but can be sent at any time after initialization.
+
+### Packet Layout
+```
+Offset  Description              Values
+------  -----------              ------
+0-1     Header                   AA 2E
+2       Command                  02
+3       Constant                 01
+4       Constant                 00
+5       Rotation                 00=0°, 01=90°, 02=180°, 03=270°
+6       Constant                 01
+7       Constant                 24
+8-41    Reserved                 00 ...
+42-45   Footer                   48 49 44 43
+46-47   Checksum                 [calculated]
+```
+
+### Status Response Rotation Field
+
+After setting rotation, the status response (0x10) byte 4 reflects the current
+rotation value (0x00-0x03). Byte 5 remains 0xFF when in Machine Info mode.
 
 ## Notes
 

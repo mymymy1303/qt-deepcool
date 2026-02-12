@@ -18,6 +18,7 @@ DeepCoolDevice::DeepCoolDevice()
     , endpointIn(0x82)
     , fd(-1)
     , currentMode(MODE_CPU_INFO)
+    , currentRotation(ROTATION_0)
 {
     libusb_init(&usbContext);
 }
@@ -355,9 +356,17 @@ bool DeepCoolDevice::initMachineInfoMode()
     qDebug() << "    Resp:" << resp.left(20).toHex();
     usleep(10000);
 
-    // 2. Command 0x02 - Config
+    // 2. Command 0x02 - Config (includes rotation)
     qDebug() << "  Cmd 0x02...";
-    sendInitPacket(0x02, QByteArray::fromHex("0100030124"));
+    {
+        QByteArray configPayload;
+        configPayload.append(static_cast<char>(0x01));
+        configPayload.append(static_cast<char>(0x00));
+        configPayload.append(static_cast<char>(currentRotation & 0x03));
+        configPayload.append(static_cast<char>(0x01));
+        configPayload.append(static_cast<char>(0x24));
+        sendInitPacket(0x02, configPayload);
+    }
     usleep(10000);
 
     // 3-9. Setup commands
@@ -400,6 +409,55 @@ bool DeepCoolDevice::initMachineInfoMode()
 bool DeepCoolDevice::setDisplayMode(DisplayMode mode)
 {
     currentMode = mode;
+    return true;
+}
+
+bool DeepCoolDevice::setRotation(ScreenRotation rotation)
+{
+    if (!isOpen()) {
+        return false;
+    }
+
+    // Rotation is sent via command 0x02 on endpoint 0x01
+    // Payload: 01 00 <rotation> 01 24
+    // rotation: 0x00=0°, 0x01=90°, 0x02=180°, 0x03=270°
+    QByteArray payload;
+    payload.append(static_cast<char>(0x01));
+    payload.append(static_cast<char>(0x00));
+    payload.append(static_cast<char>(rotation & 0x03));
+    payload.append(static_cast<char>(0x01));
+    payload.append(static_cast<char>(0x24));
+
+    QByteArray packet = buildPacket(CMD_CONFIG, payload);
+
+    if (deviceInfo.type == DEVICE_TYPE_USB_VENDOR && deviceHandle) {
+        // Must be sent on endpoint 0x01 (init endpoint), not 0x02
+        int transferred = 0;
+        int ret = libusb_bulk_transfer(deviceHandle, 0x01,
+            (unsigned char*)packet.data(), packet.size(),
+            &transferred, 1000);
+
+        if (ret < 0) {
+            qDebug() << "setRotation: send failed:" << libusb_error_name(ret);
+            return false;
+        }
+
+        // Read response from endpoint 0x81
+        QByteArray response(64, 0);
+        libusb_bulk_transfer(deviceHandle, 0x81,
+            (unsigned char*)response.data(), 64,
+            &transferred, 1000);
+    } else if (deviceInfo.type == DEVICE_TYPE_HID) {
+        if (!sendData(packet)) {
+            return false;
+        }
+        receiveData(64);
+    } else {
+        return false;
+    }
+
+    currentRotation = rotation;
+    qDebug() << "Screen rotation set to" << (rotation * 90) << "degrees";
     return true;
 }
 
