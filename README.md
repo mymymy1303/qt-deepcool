@@ -7,7 +7,9 @@ Linux command-line tool for controlling DeepCool MYSTIQUE 360 AIO cooler LCD dis
 ## Features
 
 - Display real-time CPU/GPU temperature, usage, and RAM on the LCD screen
-- Headless operation for servers (no GUI required)
+- Show a custom image on the LCD (reads JPEG, PNG or any format QImage
+  supports; always re-encoded as JPEG before upload)
+- Headless operation for servers
 - Automatic device initialization after cold boot
 - Multiple display modes: CPU focus, GPU focus, GPU temperature
 - Systemd service support for auto-start
@@ -69,7 +71,26 @@ sudo ./build/bin/deepcool-cli --mode gpu_focus --interval 1000
 
 # Verbose output
 sudo ./build/bin/deepcool-cli --mode cpu --interval 1000 -V
+
+# Display an image on the LCD (MYSTIQUE media mode) and exit
+sudo ./build/bin/deepcool-cli --image photo.jpg
 ```
+
+### Displaying an image
+
+The MYSTIQUE stores uploaded images in a persistent gallery on the device and
+shows one slot at a time. `--image` clears that gallery before uploading, so
+the new image is displayed immediately and stays on screen until you upload
+another one or restart the monitoring mode.
+
+The input file can be in any format QImage reads (JPEG, PNG, BMP, ...). The
+image is scaled and center-cropped to the panel's native resolution, 480×640
+portrait, then re-encoded as JPEG (quality 95): JPEG is the only format the
+device itself accepts.
+
+To keep the images already stored on the device instead of clearing them, add
+`--keep-gallery`; the upload is then appended to the gallery and you select
+which slot to display with `--slot <n>` (0-based).
 
 ### Options
 
@@ -80,6 +101,9 @@ sudo ./build/bin/deepcool-cli --mode cpu --interval 1000 -V
 | `-i, --interval <ms>` | Update interval in milliseconds (default: 1000) |
 | `-m, --mode <mode>` | Display mode: cpu, gpu, gpu_focus |
 | `-f, --fahrenheit` | Use Fahrenheit instead of Celsius |
+| `-I, --image <file>` | Upload an image to the LCD and exit (center-cropped to 480×640; clears the device gallery first) |
+| `-k, --keep-gallery` | Keep existing images in the device gallery when uploading |
+| `-s, --slot <n>` | Gallery slot to display after upload (0-based) |
 | `-V, --verbose` | Enable verbose output |
 | `-D, --daemon` | Run as daemon (fork to background) |
 | `-h, --help` | Show help message |

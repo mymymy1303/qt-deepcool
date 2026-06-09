@@ -3,6 +3,7 @@
 
 #include <QString>
 #include <QByteArray>
+#include <QImage>
 #include <libusb-1.0/libusb.h>
 #include <linux/hidraw.h>
 #include <sys/ioctl.h>
@@ -59,6 +60,17 @@ public:
     bool setRotation(ScreenRotation rotation);
     ScreenRotation getRotation() const { return currentRotation; }
 
+    // Image mode (MYSTIQUE LCD 480x640). The device keeps a persistent gallery
+    // of uploaded images; uploadImage() appends to it, selectImageSlot() picks
+    // which slot the LCD shows (0-based).
+    bool uploadImage(const QImage &image, int showSlot = -1);
+    bool uploadImageFile(const QString &path, int showSlot = -1);
+    bool selectImageSlot(quint8 slot);
+    bool clearImageGallery(int maxImages = 8);
+
+    static const int LCD_WIDTH = 480;   // portrait native resolution
+    static const int LCD_HEIGHT = 640;
+
     // Device verification
     bool verifyDevice();
 
@@ -84,6 +96,9 @@ private:
     // Protocol helpers
     QByteArray buildPacket(quint8 command, const QByteArray &payload);
     bool validateResponse(const QByteArray &response);
+    bool sendCommandEp1(quint8 cmd, const QByteArray &payload, QByteArray *response = nullptr);
+    bool initImageMode();
+    bool bulkWriteEp1(const QByteArray &data);
 
     // Command bytes (reverse-engineered from USB capture)
     static const quint8 CMD_UPDATE_DISPLAY = 0x01;  // Send display data

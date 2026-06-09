@@ -201,19 +201,78 @@ while (running) {
 |---------|----------|-------------|
 | 0x01 | 0x02 | Display data update |
 | 0x02 | 0x01 | Configuration (rotation + settings) |
-| 0x03 | 0x01 | Setup |
+| 0x03 | 0x01 | Display mode: payload `01` = Machine Info, `02` = image/media |
 | 0x04 | 0x01 | Setup |
 | 0x05 | 0x01 | Setup |
 | 0x06 | 0x01 | Setup |
 | 0x07 | 0x01 | Setup |
-| 0x08 | 0x01 | Setup |
+| 0x08 | 0x01 | Select image gallery slot: payload `00 <n>` (0-based) |
+| 0x09 | 0x01 | Delete selected gallery slot (no-op when gallery is empty) |
 | 0x0A | 0x01 | Mode switch |
 | 0x0B | 0x01 | Setup |
+| 0x0F | 0x01 | Arm image bulk transfer (must be acked before sending DCLd data) |
 | 0x10 | 0x02 | Status request |
 | 0x12 | 0x01 | Device info request |
 | 0x15 | 0x01 | Display label |
 | 0x16 | 0x01 | Display label |
 | 0x17 | 0x01 | Display label |
+
+## Image Upload (Media Mode)
+
+The MYSTIQUE can display arbitrary JPEG images on its 480×640 portrait LCD.
+The device keeps a **persistent gallery** of uploaded images; uploading appends
+to it, and command 0x08 selects which slot the LCD shows.
+
+### Image Format
+
+JPEG baseline, 480×640 (portrait), 4:2:0 chroma subsampling, quality ~95.
+Any standard JPEG encoder works (libjpeg/Qt/PIL); images up to at least 144 KB
+were accepted. DeepCreative center-crops to the LCD aspect ratio before encoding.
+
+JPEG is the only payload format observed and tested: DeepCreative converts
+every input (PNG, GIF, ...) to JPEG before uploading (`convertImgToJpeg` /
+`convertGifToJpeg` in its code), and so does `deepcool-cli --image`. Sending
+other formats in the DCLd frame is untested and presumed unsupported.
+
+### Upload Sequence (all on endpoint 0x01, responses on 0x81)
+
+1. **Init**: the standard init sequence with `0x03` payload `02` (image mode)
+   instead of `01`: `0x12`, `0x02(01 01 00 00 24)`, `0x03(02)`, `0x04`, `0x07`,
+   `0x08`, `0x05(01 01)`, `0x0B`, `0x06(01)`, `0x15`, `0x16`, `0x17`.
+2. **Arm transfer**: send `0x0F` (empty payload). The device must reply
+   `55 2E 0F …`; without this ack it NAKs the bulk data.
+3. **DCLd frame**: a 64-byte header followed by the raw JPEG, sent in 64-byte
+   chunks (last chunk partial, not padded):
+
+```
+Offset  Size  Description
+------  ----  -----------
+0-3     4     Magic "DCLd"
+4       1     Type: 0x01 = still image
+5-7     3     JPEG length, little-endian 24-bit
+8       1     0x00
+9-10    2     16-bit sum of all JPEG bytes, little-endian
+11-19   9     0x00
+20-51   32    Image id: 32 ASCII hex chars (DeepCreative uses an app-side md5;
+              not validated by the device)
+52-61   10    0x00
+62-63   2     Header checksum: 16-bit sum of bytes 0-61, little-endian
+```
+
+4. **Commit trailer**: a 55-byte packet `"dcldfinish"` + 45 zero bytes.
+   **Without this trailer the image is stored but never committed/shown** —
+   uploads appear to be silently ignored.
+5. **Show it**: send `0x08` payload `00 <slot>` to display the gallery slot.
+
+### Gallery Management
+
+- `0x08 00 <n>` selects (displays) slot n, 0-based.
+- `0x09` (empty payload) deletes the currently selected slot. Deleting from an
+  empty gallery is a harmless no-op, so sending `0x08 00 00` + `0x09` N times
+  reliably empties any gallery of up to N images.
+- There is no known command to query the gallery size; `deepcool-cli --image`
+  therefore clears the gallery before uploading so the new image is always
+  slot 0 (use `--keep-gallery` to skip).
 
 ## Screen Rotation Command (0x02)
 
