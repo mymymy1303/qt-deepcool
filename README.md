@@ -105,7 +105,10 @@ sudo systemctl enable --now deepcool-cli
 
 ## Protocol
 
-See [PROTOCOL.md](PROTOCOL.md) for USB protocol documentation.
+See [PROTOCOL.md](PROTOCOL.md) for USB protocol documentation, and
+[REVERSE_ENGINEERING.md](REVERSE_ENGINEERING.md) for the method and tooling
+used to obtain it (useful for reverse-engineering the remaining features:
+GIF/video, unknown commands).
 
 ## Credits
 
