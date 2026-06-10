@@ -469,6 +469,20 @@ int main(int argc, char *argv[])
         "Screen rotation: 0, 90, 180, 270 (degrees)", "degrees", "0");
     parser.addOption(rotateOption);
 
+    QCommandLineOption imageOption(QStringList() << "I" << "image",
+        "Upload an image to the LCD (MYSTIQUE media mode) and exit. "
+        "Clears the device's image gallery first unless --keep-gallery is set.", "file");
+    parser.addOption(imageOption);
+
+    QCommandLineOption keepGalleryOption(QStringList() << "k" << "keep-gallery",
+        "Keep existing images in the device gallery when uploading");
+    parser.addOption(keepGalleryOption);
+
+    QCommandLineOption slotOption(QStringList() << "s" << "slot",
+        "Gallery slot to display after upload (0-based; default 0, "
+        "or none with --keep-gallery)", "n");
+    parser.addOption(slotOption);
+
     parser.process(app);
 
     g_verbose = parser.isSet(verboseOption);
@@ -547,6 +561,33 @@ int main(int argc, char *argv[])
     }
 
     logInfo("Device opened successfully.");
+
+    // One-shot image upload mode
+    if (parser.isSet(imageOption)) {
+        QString imagePath = parser.value(imageOption);
+        bool keepGallery = parser.isSet(keepGalleryOption);
+        int slot = parser.isSet(slotOption) ? parser.value(slotOption).toInt()
+                                            : (keepGallery ? -1 : 0);
+
+        if (!keepGallery) {
+            log("Clearing device image gallery...");
+            device.clearImageGallery();
+        }
+
+        logInfo(QString("Uploading image: %1").arg(imagePath));
+        if (!device.uploadImageFile(imagePath, slot)) {
+            logError("Image upload failed.");
+            device.close();
+            return 1;
+        }
+        if (slot >= 0) {
+            logInfo(QString("Image uploaded, displaying gallery slot %1.").arg(slot));
+        } else {
+            logInfo("Image uploaded (no slot selected; use --slot to display it).");
+        }
+        device.close();
+        return 0;
+    }
 
     // Parse options
     int interval = parser.value(intervalOption).toInt();

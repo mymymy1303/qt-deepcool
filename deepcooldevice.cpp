@@ -1,6 +1,9 @@
 #include "deepcooldevice.h"
+#include <QBuffer>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
+#include <QImageWriter>
 #include <QTextStream>
 #include <fcntl.h>
 #include <unistd.h>
@@ -409,6 +412,172 @@ bool DeepCoolDevice::initMachineInfoMode()
 bool DeepCoolDevice::setDisplayMode(DisplayMode mode)
 {
     currentMode = mode;
+    return true;
+}
+
+bool DeepCoolDevice::bulkWriteEp1(const QByteArray &data)
+{
+    int transferred = 0;
+    int ret = libusb_bulk_transfer(deviceHandle, 0x01,
+        (unsigned char*)data.constData(), data.size(), &transferred, 2000);
+    return ret >= 0 && transferred == data.size();
+}
+
+bool DeepCoolDevice::sendCommandEp1(quint8 cmd, const QByteArray &payload, QByteArray *response)
+{
+    QByteArray packet = buildPacket(cmd, payload);
+    if (!bulkWriteEp1(packet)) {
+        return false;
+    }
+
+    QByteArray resp(64, 0);
+    int transferred = 0;
+    int ret = libusb_bulk_transfer(deviceHandle, 0x81,
+        (unsigned char*)resp.data(), resp.size(), &transferred, 1000);
+    if (response) {
+        *response = (ret >= 0) ? resp.left(transferred) : QByteArray();
+    }
+    usleep(5000);
+    return true;
+}
+
+bool DeepCoolDevice::initImageMode()
+{
+    // Same sequence DeepCreative replays before each upload (cmd 0x03 payload
+    // 0x02 switches the LCD to image/media mode; 0x01 would be Machine Info).
+    sendCommandEp1(0x12, QByteArray());
+    sendCommandEp1(0x02, QByteArray::fromHex("0101000024"));
+    sendCommandEp1(0x03, QByteArray::fromHex("02"));
+    sendCommandEp1(0x04, QByteArray());
+    sendCommandEp1(0x07, QByteArray());
+    sendCommandEp1(0x08, QByteArray());
+    sendCommandEp1(0x05, QByteArray::fromHex("0101"));
+    sendCommandEp1(0x0B, QByteArray());
+    sendCommandEp1(0x06, QByteArray::fromHex("01"));
+    sendCommandEp1(0x15, QByteArrayLiteral("qt-deepcool"));
+    sendCommandEp1(0x16, QByteArrayLiteral("--"));
+    sendCommandEp1(0x17, QByteArrayLiteral("--"));
+    return true;
+}
+
+bool DeepCoolDevice::selectImageSlot(quint8 slot)
+{
+    if (!isOpen() || deviceInfo.type != DEVICE_TYPE_USB_VENDOR) {
+        return false;
+    }
+    QByteArray payload;
+    payload.append(static_cast<char>(0x00));
+    payload.append(static_cast<char>(slot));
+    return sendCommandEp1(0x08, payload);
+}
+
+bool DeepCoolDevice::clearImageGallery(int maxImages)
+{
+    if (!isOpen() || deviceInfo.type != DEVICE_TYPE_USB_VENDOR) {
+        return false;
+    }
+    // cmd 0x09 deletes the selected slot; deleting from an empty gallery is a
+    // harmless no-op, so blindly deleting maxImages times empties any gallery.
+    for (int i = 0; i < maxImages; ++i) {
+        if (!selectImageSlot(0) || !sendCommandEp1(0x09, QByteArray())) {
+            return false;
+        }
+        usleep(100000);
+    }
+    return true;
+}
+
+bool DeepCoolDevice::uploadImageFile(const QString &path, int showSlot)
+{
+    QImage image(path);
+    if (image.isNull()) {
+        qDebug() << "uploadImageFile: cannot load" << path;
+        return false;
+    }
+    return uploadImage(image, showSlot);
+}
+
+bool DeepCoolDevice::uploadImage(const QImage &image, int showSlot)
+{
+    if (!isOpen() || deviceInfo.type != DEVICE_TYPE_USB_VENDOR) {
+        return false;
+    }
+
+    // Center-crop to the LCD's portrait aspect ratio, like DeepCreative does.
+    QImage img = image.convertToFormat(QImage::Format_RGB888)
+                      .scaled(LCD_WIDTH, LCD_HEIGHT,
+                              Qt::KeepAspectRatioByExpanding,
+                              Qt::SmoothTransformation);
+    img = img.copy((img.width() - LCD_WIDTH) / 2,
+                   (img.height() - LCD_HEIGHT) / 2,
+                   LCD_WIDTH, LCD_HEIGHT);
+
+    QByteArray jpeg;
+    {
+        QBuffer buffer(&jpeg);
+        buffer.open(QIODevice::WriteOnly);
+        QImageWriter writer(&buffer, "jpeg");
+        writer.setQuality(95);
+        if (!writer.write(img)) {
+            qDebug() << "uploadImage: JPEG encoding failed:" << writer.errorString();
+            return false;
+        }
+    }
+
+    // 64-byte "DCLd" transport header.
+    QByteArray header(64, 0);
+    header[0] = 'D'; header[1] = 'C'; header[2] = 'L'; header[3] = 'd';
+    header[4] = 0x01;                       // type: still image
+    quint32 len = static_cast<quint32>(jpeg.size());
+    header[5] = static_cast<char>(len & 0xFF);
+    header[6] = static_cast<char>((len >> 8) & 0xFF);
+    header[7] = static_cast<char>((len >> 16) & 0xFF);
+    quint16 contentSum = 0;                 // 16-bit sum of all JPEG bytes
+    for (char c : jpeg) {
+        contentSum += static_cast<quint8>(c);
+    }
+    header[9] = static_cast<char>(contentSum & 0xFF);
+    header[10] = static_cast<char>((contentSum >> 8) & 0xFF);
+    QByteArray md5hex = QCryptographicHash::hash(jpeg, QCryptographicHash::Md5).toHex();
+    header.replace(20, 32, md5hex);         // app-side image id, not checked by device
+    quint16 headerSum = 0;
+    for (int i = 0; i < 62; ++i) {
+        headerSum += static_cast<quint8>(header[i]);
+    }
+    header[62] = static_cast<char>(headerSum & 0xFF);
+    header[63] = static_cast<char>((headerSum >> 8) & 0xFF);
+
+    initImageMode();
+
+    // cmd 0x0F arms the bulk transfer; without its ack the device NAKs the data.
+    QByteArray resp;
+    sendCommandEp1(0x0F, QByteArray(), &resp);
+    if (resp.size() < 3 || static_cast<quint8>(resp[2]) != 0x0F) {
+        qDebug() << "uploadImage: device did not ack cmd 0x0F:" << resp.left(8).toHex();
+        return false;
+    }
+
+    QByteArray frame = header + jpeg;
+    for (int i = 0; i < frame.size(); i += 64) {
+        if (!bulkWriteEp1(frame.mid(i, 64))) {
+            qDebug() << "uploadImage: bulk write failed at offset" << i;
+            return false;
+        }
+    }
+
+    // Commit trailer: without it the image stays pending and is never shown.
+    QByteArray finish(55, 0);
+    finish.replace(0, 10, QByteArrayLiteral("dcldfinish"));
+    if (!bulkWriteEp1(finish)) {
+        return false;
+    }
+
+    qDebug() << "uploadImage:" << jpeg.size() << "byte JPEG uploaded";
+
+    if (showSlot >= 0) {
+        usleep(200000);  // let the device store the image before selecting it
+        return selectImageSlot(static_cast<quint8>(showSlot));
+    }
     return true;
 }
 
